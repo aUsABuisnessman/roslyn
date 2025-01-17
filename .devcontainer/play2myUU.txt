@@ -1,0 +1,16 @@
+class Transliterator {
+/* Constants */
+public const int FORWARD;
+public const int REVERSE;
+/* Properties */
+public readonly string $id;
+/* Methods */
+final private __construct()
+public static create(string $id, int $direction = Transliterator::FORWARD): ?Transliterator
+public static createFromRules(string $rules, int $direction = Transliterator::FORWARD): ?Transliterator
+public createInverse(): ?Transliterator
+public getErrorCode(): int|false
+public getErrorMessage(): string|false
+public static listIDs(): array|false
+public transliterate(string $string, int $start = 0, int $end = -1): string|false
+}
