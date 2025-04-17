@@ -4,36 +4,43 @@
 
 using System.Collections.Generic;
 using System.Collections.Immutable;
-using Microsoft.CodeAnalysis;
-using Microsoft.CodeAnalysis.PooledObjects;
 
-namespace Roslyn.Utilities
+namespace Roslyn.Utilities;
+
+internal static partial class ImmutableArrayExtensions
 {
-    internal static class ImmutableArrayExtensions
+    public static ImmutableArray<T> ToImmutableArray<T>(this HashSet<T> set)
     {
-        public static bool Contains<T>(this ImmutableArray<T> items, T item, IEqualityComparer<T>? equalityComparer)
-            => items.IndexOf(item, 0, equalityComparer) >= 0;
+        // [.. set] currently allocates, even for the empty case.  Workaround that until that is solved by the compiler.
+        if (set.Count == 0)
+            return [];
 
-        public static ImmutableArray<T> ToImmutableArrayOrEmpty<T>(this T[]? items)
+        return [.. set];
+    }
+
+    public static bool Contains<T>(this ImmutableArray<T> items, T item, IEqualityComparer<T>? equalityComparer)
+        => items.IndexOf(item, 0, equalityComparer) >= 0;
+
+    public static ImmutableArray<T> ToImmutableArrayOrEmpty<T>(this T[]? items)
+    {
+        if (items == null)
         {
-            if (items == null)
-            {
-                return ImmutableArray.Create<T>();
-            }
-
-            return ImmutableArray.Create<T>(items);
+            return [];
         }
 
-        public static ConcatImmutableArray<T> ConcatFast<T>(this ImmutableArray<T> first, ImmutableArray<T> second)
-            => new(first, second);
+        return ImmutableArray.Create<T>(items);
+    }
 
-        public static ImmutableArray<T> TakeAsArray<T>(this ImmutableArray<T> array, int count)
-        {
-            using var _ = ArrayBuilder<T>.GetInstance(count, out var result);
-            for (var i = 0; i < count; i++)
-                result.Add(array[i]);
+    public static ImmutableArray<T> ToImmutableAndClear<T>(this ImmutableArray<T>.Builder builder)
+    {
+        if (builder.Count == 0)
+            return [];
 
-            return result.ToImmutableAndClear();
-        }
+        if (builder.Count == builder.Capacity)
+            return builder.MoveToImmutable();
+
+        var result = builder.ToImmutable();
+        builder.Clear();
+        return result;
     }
 }

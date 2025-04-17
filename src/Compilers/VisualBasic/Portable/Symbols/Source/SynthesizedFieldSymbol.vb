@@ -55,7 +55,22 @@ Namespace Microsoft.CodeAnalysis.VisualBasic.Symbols
             End Get
         End Property
 
-        Friend Overrides Sub AddSynthesizedAttributes(moduleBuilder As PEModuleBuilder, ByRef attributes As ArrayBuilder(Of SynthesizedAttributeData))
+        Friend Overrides Sub AddSynthesizedAttributes(moduleBuilder As PEModuleBuilder, ByRef attributes As ArrayBuilder(Of VisualBasicAttributeData))
+            If TypeOf Me Is LambdaCapturedVariable OrElse TypeOf Me Is StateMachineFieldSymbol Then
+                Dim definition = TryCast(_implicitlyDefinedBy.OriginalDefinition, SourceParameterSymbolBase)
+
+                If definition IsNot Nothing AndAlso
+                   ContainingModule = definition.ContainingModule Then
+                    For Each attr In definition.GetAttributes()
+                        Dim attributeType As NamedTypeSymbol = attr.AttributeClass
+                        If attributeType IsNot Nothing AndAlso attributeType.HasCompilerLoweringPreserveAttribute AndAlso
+                           (attributeType.GetAttributeUsageInfo().ValidTargets And System.AttributeTargets.Field) <> 0 Then
+                            AddSynthesizedAttribute(attributes, attr)
+                        End If
+                    Next
+                End If
+            End If
+
             MyBase.AddSynthesizedAttributes(moduleBuilder, attributes)
 
             ' enum fields do not need to be marked as generated
@@ -110,6 +125,12 @@ Namespace Microsoft.CodeAnalysis.VisualBasic.Symbols
         Friend Overrides Function GetConstantValue(inProgress As ConstantFieldsInProgress) As ConstantValue
             Return Nothing
         End Function
+
+        Public NotOverridable Overrides ReadOnly Property IsRequired As Boolean
+            Get
+                Return False
+            End Get
+        End Property
 
         Public Overrides ReadOnly Property ContainingSymbol As Symbol
             Get

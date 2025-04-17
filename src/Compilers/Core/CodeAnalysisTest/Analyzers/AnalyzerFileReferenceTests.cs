@@ -29,7 +29,7 @@ namespace Microsoft.CodeAnalysis.UnitTests
     [Collection(AssemblyLoadTestFixtureCollection.Name)]
     public class AnalyzerFileReferenceTests : TestBase
     {
-        private static readonly AnalyzerAssemblyLoader s_analyzerLoader = new DefaultAnalyzerAssemblyLoader();
+        private static readonly AnalyzerAssemblyLoader s_analyzerLoader = new AnalyzerAssemblyLoader();
         private readonly AssemblyLoadTestFixture _testFixture;
         public AnalyzerFileReferenceTests(AssemblyLoadTestFixture testFixture)
         {
@@ -54,7 +54,7 @@ namespace Microsoft.CodeAnalysis.UnitTests
         [Fact]
         public void DisplayAndId_BadPath()
         {
-            var loader = new TestAnalyzerAssemblyLoader(loadFromPath: _ => throw new Exception());
+            var loader = new ThrowingLoader();
             var refBadPath = new AnalyzerFileReference(PathUtilities.CombinePathsUnchecked(TempRoot.Root, "\0<>|*.xyz"), loader);
             Assert.Equal("\0<>|*", refBadPath.Display);
             Assert.Equal("\0<>|*", refBadPath.Id);
@@ -67,8 +67,8 @@ namespace Microsoft.CodeAnalysis.UnitTests
             var path2 = Path.Combine(TempRoot.Root, "dir", "..", "dir");
 
             // Equals/GetHashCode should not load the analyzer
-            var loader1 = new TestAnalyzerAssemblyLoader(loadFromPath: _ => throw new InvalidOperationException());
-            var loader2 = new TestAnalyzerAssemblyLoader(loadFromPath: _ => throw new InvalidOperationException());
+            var loader1 = new ThrowingLoader();
+            var loader2 = new ThrowingLoader();
 
             var refA = new AnalyzerFileReference(path1, loader1);
             var refB = new AnalyzerFileReference(path1, loader1);
@@ -319,13 +319,13 @@ namespace Microsoft.CodeAnalysis.UnitTests
                 args: new[] { "/nologo", $@"/analyzer:""{_testFixture.AnalyzerWithLaterFakeCompilerDependency}""", "/nostdlib", $@"/r:""{corlib}""", "/out:something.dll", source.Path },
                 new BuildPaths(clientDir: directory.Path, workingDir: directory.Path, sdkDir: null, tempDir: null),
                 additionalReferenceDirectories: null,
-                new DefaultAnalyzerAssemblyLoader());
+                new AnalyzerAssemblyLoader());
 
             var writer = new StringWriter();
             var result = compiler.Run(writer);
             Assert.Equal(0, result);
             AssertEx.Equal($"""
-                warning CS9057: The analyzer assembly '{_testFixture.AnalyzerWithLaterFakeCompilerDependency}' references version '100.0.0.0' of the compiler, which is newer than the currently running version '{typeof(DefaultAnalyzerAssemblyLoader).Assembly.GetName().Version}'.
+                warning CS9057: Analyzer assembly '{_testFixture.AnalyzerWithLaterFakeCompilerDependency}' cannot be used because it references version '100.0.0.0' of the compiler, which is newer than the currently running version '42.42.42.42'.
                 in.cs(1,5): warning CS0219: The variable 'x' is assigned but its value is never used
 
                 """, writer.ToString());
@@ -348,7 +348,7 @@ namespace Microsoft.CodeAnalysis.UnitTests
                 args: new[] { "/nologo", $@"/analyzer:""{_testFixture.AnalyzerWithFakeCompilerDependency}""", $@"/analyzer:""{_testFixture.AnalyzerWithFakeCompilerDependency}""", "/nostdlib", $@"/r:""{corlib}""", "/out:something.dll", source.Path },
                 new BuildPaths(clientDir: directory.Path, workingDir: directory.Path, sdkDir: null, tempDir: null),
                 additionalReferenceDirectories: null,
-                new DefaultAnalyzerAssemblyLoader());
+                new AnalyzerAssemblyLoader());
 
             var writer = new StringWriter();
             var result = compiler.Run(writer);
@@ -742,5 +742,14 @@ public class Generator : ISourceGenerator
         public void Initialize(IncrementalGeneratorInitializationContext context) => throw new NotImplementedException();
 
         public void Initialize(GeneratorInitializationContext context) => throw new NotImplementedException();
+    }
+
+    file sealed class ThrowingLoader : IAnalyzerAssemblyLoaderInternal
+    {
+        public void AddDependencyLocation(string fullPath) { }
+        public bool IsHostAssembly(Assembly assembly) => false;
+        public Assembly LoadFromPath(string fullPath) => throw new Exception();
+        public string? GetOriginalDependencyLocation(AssemblyName assembly) => throw new Exception();
+        public void Dispose() { }
     }
 }

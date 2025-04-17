@@ -33,6 +33,10 @@ namespace Microsoft.CodeAnalysis.CSharp
         {
             MakeSlots(MethodParameters);
             if ((object)MethodThisParameter != null) GetOrCreateSlot(MethodThisParameter);
+
+            if (TryGetInstanceExtensionParameter(out ParameterSymbol extensionParameter))
+                GetOrCreateSlot(extensionParameter);
+
             var result = base.Scan(ref badRegion);
             return result;
         }
@@ -61,6 +65,14 @@ namespace Microsoft.CodeAnalysis.CSharp
             {
                 GetOrCreateSlot(parameter);
             }
+        }
+
+        protected override void AfterVisitInlineArrayAccess(BoundInlineArrayAccess node)
+        {
+        }
+
+        protected override void AfterVisitConversion(BoundConversion node)
+        {
         }
     }
 }

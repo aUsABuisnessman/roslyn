@@ -47,7 +47,7 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
 
         internal override NamedTypeSymbol BaseTypeNoUseSiteDiagnostics => _underlyingType.BaseTypeNoUseSiteDiagnostics;
 
-        public override SpecialType SpecialType => _underlyingType.SpecialType;
+        public override ExtendedSpecialType ExtendedSpecialType => _underlyingType.ExtendedSpecialType;
 
         public override IEnumerable<string> MemberNames => GetMembers().Select(m => m.Name);
 
@@ -141,9 +141,9 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
 
         public override ImmutableArray<NamedTypeSymbol> GetTypeMembers() => ImmutableArray<NamedTypeSymbol>.Empty;
 
-        public override ImmutableArray<NamedTypeSymbol> GetTypeMembers(string name) => ImmutableArray<NamedTypeSymbol>.Empty;
+        public override ImmutableArray<NamedTypeSymbol> GetTypeMembers(ReadOnlyMemory<char> name) => ImmutableArray<NamedTypeSymbol>.Empty;
 
-        public override ImmutableArray<NamedTypeSymbol> GetTypeMembers(string name, int arity) => ImmutableArray<NamedTypeSymbol>.Empty;
+        public override ImmutableArray<NamedTypeSymbol> GetTypeMembers(ReadOnlyMemory<char> name, int arity) => ImmutableArray<NamedTypeSymbol>.Empty;
 
         internal override NamedTypeSymbol GetDeclaredBaseType(ConsList<TypeSymbol> basesBeingResolved) => _underlyingType.GetDeclaredBaseType(basesBeingResolved);
 
@@ -177,11 +177,14 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
         internal sealed override NamedTypeSymbol NativeIntegerUnderlyingType => _underlyingType;
 
         // note: there is no supported way to create a native integer type whose underlying type is file-local.
-        internal override FileIdentifier? AssociatedFileIdentifier => null;
+        internal sealed override bool IsFileLocal => false;
+        internal sealed override FileIdentifier? AssociatedFileIdentifier => null;
 
         internal sealed override bool IsRecord => false;
         internal sealed override bool IsRecordStruct => false;
         internal sealed override bool HasPossibleWellKnownCloneMethod() => false;
+
+        internal sealed override ParameterSymbol? ExtensionParameter => null;
 
         internal override bool Equals(TypeSymbol? other, TypeCompareKind comparison)
         {
@@ -203,6 +206,8 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
         }
 
         public override int GetHashCode() => _underlyingType.GetHashCode();
+
+        internal override bool HasCompilerLoweringPreserveAttribute => false;
 
 #if !DEBUG
         void Cci.IReference.Dispatch(Cci.MetadataVisitor visitor)
@@ -273,6 +278,25 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
         internal override IEnumerable<(MethodSymbol Body, MethodSymbol Implemented)> SynthesizedInterfaceMethodImpls()
         {
             return SpecializedCollections.EmptyEnumerable<(MethodSymbol Body, MethodSymbol Implemented)>();
+        }
+
+        internal override bool HasInlineArrayAttribute(out int length)
+        {
+            length = 0;
+            return false;
+        }
+
+        internal sealed override bool HasCollectionBuilderAttribute(out TypeSymbol? builderType, out string? methodName)
+        {
+            builderType = null;
+            methodName = null;
+            return false;
+        }
+
+        internal sealed override bool HasAsyncMethodBuilderAttribute(out TypeSymbol? builderArgument)
+        {
+            builderArgument = null;
+            return false;
         }
 
         private sealed class NativeIntegerTypeMap : AbstractTypeMap
@@ -369,6 +393,12 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
             throw ExceptionUtilities.Unreachable();
         }
 #endif 
+
+        internal sealed override bool HasAsyncMethodBuilderAttribute(out TypeSymbol? builderArgument)
+        {
+            builderArgument = null;
+            return false;
+        }
     }
 
     internal sealed class NativeIntegerParameterSymbol : WrappedParameterSymbol
@@ -405,6 +435,8 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
         internal override ImmutableArray<int> InterpolatedStringHandlerArgumentIndexes => _underlyingParameter.InterpolatedStringHandlerArgumentIndexes;
 
         internal override bool HasInterpolatedStringHandlerArgumentError => _underlyingParameter.HasInterpolatedStringHandlerArgumentError;
+
+        internal override bool HasEnumeratorCancellationAttribute => _underlyingParameter.HasEnumeratorCancellationAttribute;
 
         public override bool Equals(Symbol? other, TypeCompareKind comparison) => NativeIntegerTypeSymbol.EqualsHelper(this, other, comparison, symbol => symbol._underlyingParameter);
 

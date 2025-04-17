@@ -122,7 +122,15 @@ Namespace Microsoft.CodeAnalysis.VisualBasic.Symbols
             End Get
         End Property
 
-        Friend Overrides Sub AddSynthesizedAttributes(moduleBuilder As PEModuleBuilder, ByRef attributes As ArrayBuilder(Of SynthesizedAttributeData))
+        Friend Overrides Sub AddSynthesizedAttributes(moduleBuilder As PEModuleBuilder, ByRef attributes As ArrayBuilder(Of VisualBasicAttributeData))
+            For Each attr In _propertyOrEvent.GetAttributes()
+                Dim attributeType As NamedTypeSymbol = attr.AttributeClass
+                If attributeType IsNot Nothing AndAlso attributeType.HasCompilerLoweringPreserveAttribute AndAlso
+                   (attributeType.GetAttributeUsageInfo().ValidTargets And System.AttributeTargets.Field) <> 0 Then
+                    AddSynthesizedAttribute(attributes, attr)
+                End If
+            Next
+
             MyBase.AddSynthesizedAttributes(moduleBuilder, attributes)
 
             Dim compilation = Me.DeclaringCompilation
@@ -176,6 +184,12 @@ Namespace Microsoft.CodeAnalysis.VisualBasic.Symbols
         Friend Overrides ReadOnly Property TypeLayoutOffset As Integer?
             Get
                 Return Nothing
+            End Get
+        End Property
+
+        Public NotOverridable Overrides ReadOnly Property IsRequired As Boolean
+            Get
+                Return False
             End Get
         End Property
     End Class

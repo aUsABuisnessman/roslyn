@@ -33,7 +33,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
         Protected StateField As FieldSymbol
         Protected nonReusableLocalProxies As Dictionary(Of Symbol, TProxy)
         Protected nextFreeHoistedLocalSlot As Integer
-        Protected hoistedVariables As Roslyn.Utilities.IReadOnlySet(Of Symbol)
+        Protected hoistedVariables As IReadOnlySet(Of Symbol)
         Protected InitialParameters As Dictionary(Of Symbol, TProxy)
 
         Protected Sub New(body As BoundStatement,
@@ -241,7 +241,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
                 proxy = CreateParameterCapture(
                             F.StateMachineField(
                                 paramType,
-                                Me.Method,
+                                parameter,
                                 GeneratedNames.MakeStateMachineParameterName(parameter.Name),
                                 Accessibility.Friend),
                             parameter)
@@ -252,7 +252,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
                                              CreateParameterCapture(
                                                  Me.F.StateMachineField(
                                                      paramType,
-                                                     Me.Method,
+                                                     parameter,
                                                      GeneratedNames.MakeIteratorParameterProxyName(parameter.Name),
                                                      Accessibility.Friend),
                                                  parameter))

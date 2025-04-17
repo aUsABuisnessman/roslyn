@@ -89,6 +89,9 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
 
         public override bool IsRefLikeType => false;
 
+        internal override string ExtensionName
+            => throw ExceptionUtilities.Unreachable();
+
         public override bool IsReadOnly => false;
 
         public override bool IsAbstract => false;
@@ -99,11 +102,22 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
 
         internal override bool MangleName => false;
 
-        internal override FileIdentifier? AssociatedFileIdentifier => null;
+        internal sealed override bool IsFileLocal => false;
+        internal sealed override FileIdentifier AssociatedFileIdentifier => null;
+
+        internal override bool GetGuidString(out string guidString)
+        {
+            guidString = null;
+            return false;
+        }
 
         internal override bool HasCodeAnalysisEmbeddedAttribute => true;
 
+        internal override bool HasCompilerLoweringPreserveAttribute => false;
+
         internal override bool IsInterpolatedStringHandlerType => false;
+
+        internal sealed override ParameterSymbol ExtensionParameter => null;
 
         internal override bool HasSpecialName => false;
 
@@ -137,9 +151,9 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
 
         public override ImmutableArray<NamedTypeSymbol> GetTypeMembers() => ImmutableArray<NamedTypeSymbol>.Empty;
 
-        public override ImmutableArray<NamedTypeSymbol> GetTypeMembers(string name) => ImmutableArray<NamedTypeSymbol>.Empty;
+        public override ImmutableArray<NamedTypeSymbol> GetTypeMembers(ReadOnlyMemory<char> name) => ImmutableArray<NamedTypeSymbol>.Empty;
 
-        public override ImmutableArray<NamedTypeSymbol> GetTypeMembers(string name, int arity) => ImmutableArray<NamedTypeSymbol>.Empty;
+        public override ImmutableArray<NamedTypeSymbol> GetTypeMembers(ReadOnlyMemory<char> name, int arity) => ImmutableArray<NamedTypeSymbol>.Empty;
 
         internal override ImmutableArray<string> GetAppliedConditionalSymbols() => ImmutableArray<string>.Empty;
 
@@ -165,7 +179,7 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
         internal sealed override bool IsRecordStruct => false;
         internal sealed override bool HasPossibleWellKnownCloneMethod() => false;
 
-        internal override void AddSynthesizedAttributes(PEModuleBuilder moduleBuilder, ref ArrayBuilder<SynthesizedAttributeData> attributes)
+        internal override void AddSynthesizedAttributes(PEModuleBuilder moduleBuilder, ref ArrayBuilder<CSharpAttributeData> attributes)
         {
             base.AddSynthesizedAttributes(moduleBuilder, ref attributes);
 
@@ -194,6 +208,27 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
         {
             return SpecializedCollections.EmptyEnumerable<(MethodSymbol Body, MethodSymbol Implemented)>();
         }
+
+        internal sealed override bool HasInlineArrayAttribute(out int length)
+        {
+            length = 0;
+            return false;
+        }
+
+#nullable enable
+        internal sealed override bool HasCollectionBuilderAttribute(out TypeSymbol? builderType, out string? methodName)
+        {
+            builderType = null;
+            methodName = null;
+            return false;
+        }
+
+        internal sealed override bool HasAsyncMethodBuilderAttribute(out TypeSymbol? builderArgument)
+        {
+            builderArgument = null;
+            return false;
+        }
+#nullable disable
     }
 
     /// <summary>

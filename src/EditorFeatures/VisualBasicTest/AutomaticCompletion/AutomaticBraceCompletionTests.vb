@@ -95,12 +95,12 @@ End Class</code>
         End Sub
 
         Friend Overloads Shared Function CreateSession(code As XElement) As Holder
-            Return CreateSessionASync(code.NormalizedValue())
+            Return CreateSessionAsync(code.NormalizedValue())
         End Function
 
-        Friend Overloads Shared Function CreateSessionASync(code As String) As Holder
-            Return AbstractAutomaticBraceCompletionTests.CreateSession(
-                TestWorkspace.CreateVisualBasic(code),
+        Friend Overloads Shared Function CreateSessionAsync(code As String) As Holder
+            Return CreateSession(
+                EditorTestWorkspace.CreateVisualBasic(code),
                 CurlyBrace.OpenCharacter, CurlyBrace.CloseCharacter)
         End Function
     End Class

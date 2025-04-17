@@ -82,24 +82,24 @@ namespace Microsoft.CodeAnalysis.CSharp.Semantic.UnitTests.SourceGeneration
             var previousTable = builder.ToImmutableAndFree();
 
             builder = previousTable.ToBuilder(stepName: null, false);
-            builder.AddEntries(ImmutableArray.Create(10, 11), EntryState.Added, TimeSpan.Zero, default, EntryState.Added);
+            builder.TryModifyEntries(ImmutableArray.Create(10, 11), TimeSpan.Zero, default, EntryState.Modified);
             builder.TryUseCachedEntries(TimeSpan.Zero, default, out var cachedEntries); // ((2, EntryState.Cached), (3, EntryState.Cached))
-            builder.AddEntries(ImmutableArray.Create(20, 21, 22), EntryState.Modified, TimeSpan.Zero, default, EntryState.Modified);
+            builder.TryModifyEntries(ImmutableArray.Create(20, 21, 22), TimeSpan.Zero, default, EntryState.Modified);
             bool didRemoveEntries = builder.TryRemoveEntries(TimeSpan.Zero, default, out var removedEntries); //((6, EntryState.Removed))
             var newTable = builder.ToImmutableAndFree();
 
-            var expected = ImmutableArray.Create((10, EntryState.Added, 0), (11, EntryState.Added, 1), (2, EntryState.Cached, 0), (3, EntryState.Cached, 1), (20, EntryState.Modified, 0), (21, EntryState.Modified, 1), (22, EntryState.Modified, 2), (6, EntryState.Removed, 0));
+            var expected = ImmutableArray.Create((10, EntryState.Modified, 0), (11, EntryState.Added, 1), (2, EntryState.Cached, 0), (3, EntryState.Cached, 1), (20, EntryState.Modified, 0), (21, EntryState.Modified, 1), (22, EntryState.Added, 2), (6, EntryState.Removed, 0));
             AssertTableEntries(newTable, expected);
-            Assert.Equal(new[] { 2, 3 }, YieldItems(cachedEntries.Items));
+            Assert.Equal(new[] { 2, 3 }, yieldItems(cachedEntries.Items));
             Assert.Equal(1, removedEntries.Count);
             Assert.Equal(6, removedEntries[0]);
             Assert.True(didRemoveEntries);
-        }
 
-        private static IEnumerable<int> YieldItems(OneOrMany<int> items)
-        {
-            foreach (var value in items)
-                yield return value;
+            static IEnumerable<int> yieldItems(OneOrMany<int> items)
+            {
+                foreach (var value in items)
+                    yield return value;
+            }
         }
 
         [Fact]
@@ -185,9 +185,9 @@ namespace Microsoft.CodeAnalysis.CSharp.Semantic.UnitTests.SourceGeneration
             AssertTableEntries(previousTable, expected);
 
             builder = previousTable.ToBuilder(stepName: null, false);
-            Assert.True(builder.TryModifyEntries(ImmutableArray.Create(3, 2), EqualityComparer<int>.Default, TimeSpan.Zero, default, EntryState.Modified));
-            Assert.True(builder.TryModifyEntries(ImmutableArray<int>.Empty, EqualityComparer<int>.Default, TimeSpan.Zero, default, EntryState.Modified));
-            Assert.True(builder.TryModifyEntries(ImmutableArray.Create(3, 5), EqualityComparer<int>.Default, TimeSpan.Zero, default, EntryState.Modified));
+            Assert.True(builder.TryModifyEntries(ImmutableArray.Create(3, 2), TimeSpan.Zero, default, EntryState.Modified));
+            Assert.True(builder.TryModifyEntries(ImmutableArray<int>.Empty, TimeSpan.Zero, default, EntryState.Modified));
+            Assert.True(builder.TryModifyEntries(ImmutableArray.Create(3, 5), TimeSpan.Zero, default, EntryState.Modified));
 
             var newTable = builder.ToImmutableAndFree();
 
@@ -209,10 +209,10 @@ namespace Microsoft.CodeAnalysis.CSharp.Semantic.UnitTests.SourceGeneration
             AssertTableEntries(previousTable, expected);
 
             builder = previousTable.ToBuilder(stepName: null, false);
-            Assert.True(builder.TryModifyEntry(1, EqualityComparer<int>.Default, TimeSpan.Zero, default, EntryState.Modified));
-            Assert.True(builder.TryModifyEntry(2, EqualityComparer<int>.Default, TimeSpan.Zero, default, EntryState.Modified));
-            Assert.True(builder.TryModifyEntry(5, EqualityComparer<int>.Default, TimeSpan.Zero, default, EntryState.Modified));
-            Assert.True(builder.TryModifyEntry(4, EqualityComparer<int>.Default, TimeSpan.Zero, default, EntryState.Modified));
+            Assert.True(builder.TryModifyEntry(1, TimeSpan.Zero, default, EntryState.Modified));
+            Assert.True(builder.TryModifyEntry(2, TimeSpan.Zero, default, EntryState.Modified));
+            Assert.True(builder.TryModifyEntry(5, TimeSpan.Zero, default, EntryState.Modified));
+            Assert.True(builder.TryModifyEntry(4, TimeSpan.Zero, default, EntryState.Modified));
 
             var newTable = builder.ToImmutableAndFree();
 
@@ -232,10 +232,10 @@ namespace Microsoft.CodeAnalysis.CSharp.Semantic.UnitTests.SourceGeneration
             var expected = ImmutableArray.Create((1, EntryState.Added, 0), (2, EntryState.Added, 0), (3, EntryState.Added, 0));
             AssertTableEntries(previousTable, expected);
 
-            builder = previousTable.ToBuilder(stepName: null, false);
-            Assert.True(builder.TryModifyEntry(1, EqualityComparer<int>.Default, TimeSpan.Zero, default, EntryState.Modified));           // ((1, EntryState.Cached))
-            Assert.True(builder.TryModifyEntry(4, EqualityComparer<int>.Default, TimeSpan.Zero, default, EntryState.Modified));           // ((4, EntryState.Modified))
-            Assert.True(builder.TryModifyEntry(5, new LambdaComparer<int>((i, j) => true), TimeSpan.Zero, default, EntryState.Modified)); // ((3, EntryState.Cached))
+            builder = previousTable.ToBuilder(stepName: null, false, new LambdaComparer<int>((i, j) => i == 3 || i == j));
+            Assert.True(builder.TryModifyEntry(1, TimeSpan.Zero, default, EntryState.Modified)); // ((1, EntryState.Cached))
+            Assert.True(builder.TryModifyEntry(4, TimeSpan.Zero, default, EntryState.Modified)); // ((4, EntryState.Modified))
+            Assert.True(builder.TryModifyEntry(5, TimeSpan.Zero, default, EntryState.Modified)); // ((3, EntryState.Cached))
             var newTable = builder.ToImmutableAndFree();
 
             expected = ImmutableArray.Create((1, EntryState.Cached, 0), (4, EntryState.Modified, 0), (3, EntryState.Cached, 0));
@@ -583,6 +583,45 @@ namespace Microsoft.CodeAnalysis.CSharp.Semantic.UnitTests.SourceGeneration
                             Assert.Equal(IncrementalStepRunReason.Modified, output.Reason);
                         });
                 });
+        }
+
+        [Fact, WorkItem(61162, "https://github.com/dotnet/roslyn/issues/61162")]
+        public void Batch_Node_Remove_From_Beginning()
+        {
+            // [A], [B]
+            var input = new[] { ("A", EntryState.Added), ("B", EntryState.Added) };
+            var inputNode = new CallbackNode<string>((_, _) =>
+            {
+                // Simulate syntax node.
+                var builder = NodeStateTable<string>.Empty.ToBuilder(null, false);
+                foreach (var (value, state) in input)
+                {
+                    builder.AddEntry(value, state, TimeSpan.Zero, default, state);
+                }
+                return builder.ToImmutableAndFree();
+            });
+            var dstBuilder = GetBuilder(DriverStateTable.Empty);
+            var table1 = dstBuilder.GetLatestStateTableForNode(inputNode);
+            AssertTableEntries(table1, new[] { ("A", EntryState.Added, 0), ("B", EntryState.Added, 0) });
+            AssertTableEntries(table1.AsCached(), new[] { ("A", EntryState.Cached, 0), ("B", EntryState.Cached, 0) });
+
+            // batch => [[A], [B]]
+            var batchNode = new BatchNode<string>(inputNode);
+            var table2 = dstBuilder.GetLatestStateTableForNode(batchNode);
+            AssertTableEntries(table2, new[] { (ImmutableArray.Create("A", "B"), EntryState.Added, 0) });
+            AssertTableEntries(table2.AsCached(), new[] { (ImmutableArray.Create("A", "B"), EntryState.Cached, 0) });
+
+            // [B]
+            input = new[] { ("B", EntryState.Cached) };
+            dstBuilder = GetBuilder(dstBuilder.ToImmutable());
+            table1 = dstBuilder.GetLatestStateTableForNode(inputNode);
+            AssertTableEntries(table1, new[] { ("B", EntryState.Cached, 0) });
+            AssertTableEntries(table1.AsCached(), new[] { ("B", EntryState.Cached, 0) });
+
+            // batch => [[B]]
+            table2 = dstBuilder.GetLatestStateTableForNode(batchNode);
+            AssertTableEntries(table2, new[] { (ImmutableArray.Create("B"), EntryState.Modified, 0) });
+            AssertTableEntries(table2.AsCached(), new[] { (ImmutableArray.Create("B"), EntryState.Cached, 0) });
         }
 
         [Fact]
@@ -967,7 +1006,7 @@ namespace Microsoft.CodeAnalysis.CSharp.Semantic.UnitTests.SourceGeneration
 
             values = ImmutableArray.Create(1, 2, 3);
 
-            // second time we'll see that the "Input" step is modified, but the outputs of the "SelectMany" step are modified.
+            // second time we'll see that the "Input" step is modified, but the outputs of the "SelectMany" step are new.
             dstBuilder = GetBuilder(dstBuilder.ToImmutable(), trackIncrementalGeneratorSteps: true);
             var table = dstBuilder.GetLatestStateTableForNode(transformNode);
 
@@ -979,7 +1018,7 @@ namespace Microsoft.CodeAnalysis.CSharp.Semantic.UnitTests.SourceGeneration
 
             Assert.All(step.Outputs, output =>
             {
-                Assert.Equal(IncrementalStepRunReason.Modified, output.Reason);
+                Assert.Equal(IncrementalStepRunReason.New, output.Reason);
             });
         }
 
@@ -1065,6 +1104,217 @@ namespace Microsoft.CodeAnalysis.CSharp.Semantic.UnitTests.SourceGeneration
             AssertTableEntries(table.AsCached(), ImmutableArray.Create(("class1", EntryState.Cached, 0), ("class1.1", EntryState.Cached, 1)));
         }
 
+        [Fact, WorkItem("https://github.com/dotnet/roslyn/issues/67123")]
+        public void Node_Table_When_Previous_Was_Smaller()
+        {
+            ImmutableArray<string> values = ImmutableArray.Create("1", "2");
+            var inputNode = new InputNode<string>(_ => values).WithTrackingName("Input");
+
+            var transformNode = new TransformNode<string, string>(inputNode, (a, ct) =>
+            {
+                return a switch
+                {
+                    "1" => ImmutableArray.Create("1.1", "1.2"),
+                    "2" => ImmutableArray.Create("2.1", "2.2"),
+                    _ => ImmutableArray.Create("1.1", "inserted", "1.2")
+                };
+            }, name: "Select");
+
+            var select2 = new TransformNode<string, string>(transformNode, (a, ct) => a, name: "Select2");
+
+            DriverStateTable.Builder dstBuilder = GetBuilder(DriverStateTable.Empty, trackIncrementalGeneratorSteps: false);
+            var table = dstBuilder.GetLatestStateTableForNode(select2);
+
+            AssertTableEntries(table, ImmutableArray.Create(("1.1", EntryState.Added, 0), ("1.2", EntryState.Added, 0), ("2.1", EntryState.Added, 0), ("2.2", EntryState.Added, 0)));
+            Assert.Equal(4, table.AsCached().Count); // [1.1, 1.2, 2.1, 2.2]
+            AssertTableEntries(table.AsCached(), ImmutableArray.Create(("1.1", EntryState.Cached, 0), ("1.2", EntryState.Cached, 0), ("2.1", EntryState.Cached, 0), ("2.2", EntryState.Cached, 0)));
+
+            // change the input so we can re-run, this time with the extra value inserted
+            values = ImmutableArray.Create("3", "2");
+            dstBuilder = GetBuilder(dstBuilder.ToImmutable(), trackIncrementalGeneratorSteps: false);
+            table = dstBuilder.GetLatestStateTableForNode(select2);
+
+            AssertTableEntries(table, ImmutableArray.Create(("1.1", EntryState.Cached, 0), ("inserted", EntryState.Modified, 0), ("1.2", EntryState.Added, 0), ("2.1", EntryState.Cached, 0), ("2.2", EntryState.Cached, 0)));
+            Assert.Equal(5, table.AsCached().Count); // [1.1, inserted, 1.2, 2.1, 2.2]
+            AssertTableEntries(table.AsCached(), ImmutableArray.Create(("1.1", EntryState.Cached, 0), ("inserted", EntryState.Cached, 0), ("1.2", EntryState.Cached, 0), ("2.1", EntryState.Cached, 0), ("2.2", EntryState.Cached, 0)));
+        }
+
+        [Fact, WorkItem("https://github.com/dotnet/roslyn/issues/67123")]
+        public void Node_Table_When_Previous_Was_Smaller_InsertedAtStart()
+        {
+            ImmutableArray<string> values = ImmutableArray.Create("1", "2");
+            var inputNode = new InputNode<string>(_ => values).WithTrackingName("Input");
+
+            var transformNode = new TransformNode<string, string>(inputNode, (a, ct) =>
+            {
+                return a switch
+                {
+                    "1" => ImmutableArray.Create("1.1", "1.2"),
+                    "2" => ImmutableArray.Create("2.1", "2.2"),
+                    _ => ImmutableArray.Create("inserted", "1.1", "1.2")
+                };
+            }, name: "Select");
+
+            var select2 = new TransformNode<string, string>(transformNode, (a, ct) => a, name: "Select2");
+
+            DriverStateTable.Builder dstBuilder = GetBuilder(DriverStateTable.Empty, trackIncrementalGeneratorSteps: false);
+            var table = dstBuilder.GetLatestStateTableForNode(select2);
+
+            AssertTableEntries(table, ImmutableArray.Create(("1.1", EntryState.Added, 0), ("1.2", EntryState.Added, 0), ("2.1", EntryState.Added, 0), ("2.2", EntryState.Added, 0)));
+            Assert.Equal(4, table.AsCached().Count); // [1.1, 1.2, 2.1, 2.2]
+            AssertTableEntries(table.AsCached(), ImmutableArray.Create(("1.1", EntryState.Cached, 0), ("1.2", EntryState.Cached, 0), ("2.1", EntryState.Cached, 0), ("2.2", EntryState.Cached, 0)));
+
+            // change the input so we can re-run, this time with the extra value inserted
+            values = ImmutableArray.Create("3", "2");
+            dstBuilder = GetBuilder(dstBuilder.ToImmutable(), trackIncrementalGeneratorSteps: false);
+            table = dstBuilder.GetLatestStateTableForNode(select2);
+
+            AssertTableEntries(table, ImmutableArray.Create(("inserted", EntryState.Modified, 0), ("1.1", EntryState.Modified, 0), ("1.2", EntryState.Added, 0), ("2.1", EntryState.Cached, 0), ("2.2", EntryState.Cached, 0)));
+            Assert.Equal(5, table.AsCached().Count); // [inserted, 1.1, 1.2, 2.1, 2.2]
+            AssertTableEntries(table.AsCached(), ImmutableArray.Create(("inserted", EntryState.Cached, 0), ("1.1", EntryState.Cached, 0), ("1.2", EntryState.Cached, 0), ("2.1", EntryState.Cached, 0), ("2.2", EntryState.Cached, 0)));
+        }
+
+        [Fact, WorkItem("https://github.com/dotnet/roslyn/issues/67123")]
+        public void Node_Table_When_Previous_Was_Smaller_InsertedAtEnd()
+        {
+            ImmutableArray<string> values = ImmutableArray.Create("1", "2");
+            var inputNode = new InputNode<string>(_ => values).WithTrackingName("Input");
+
+            var transformNode = new TransformNode<string, string>(inputNode, (a, ct) =>
+            {
+                return a switch
+                {
+                    "1" => ImmutableArray.Create("1.1", "1.2"),
+                    "2" => ImmutableArray.Create("2.1", "2.2"),
+                    _ => ImmutableArray.Create("1.1", "1.2", "inserted")
+                };
+            }, name: "Select");
+
+            var select2 = new TransformNode<string, string>(transformNode, (a, ct) => a, name: "Select2");
+
+            DriverStateTable.Builder dstBuilder = GetBuilder(DriverStateTable.Empty, trackIncrementalGeneratorSteps: false);
+            var table = dstBuilder.GetLatestStateTableForNode(select2);
+
+            AssertTableEntries(table, ImmutableArray.Create(("1.1", EntryState.Added, 0), ("1.2", EntryState.Added, 0), ("2.1", EntryState.Added, 0), ("2.2", EntryState.Added, 0)));
+            Assert.Equal(4, table.AsCached().Count); // [1.1, 1.2, 2.1, 2.2]
+            AssertTableEntries(table.AsCached(), ImmutableArray.Create(("1.1", EntryState.Cached, 0), ("1.2", EntryState.Cached, 0), ("2.1", EntryState.Cached, 0), ("2.2", EntryState.Cached, 0)));
+
+            // change the input so we can re-run, this time with the extra value inserted
+            values = ImmutableArray.Create("3", "2");
+            dstBuilder = GetBuilder(dstBuilder.ToImmutable(), trackIncrementalGeneratorSteps: false);
+            table = dstBuilder.GetLatestStateTableForNode(select2);
+
+            AssertTableEntries(table, ImmutableArray.Create(("1.1", EntryState.Cached, 0), ("1.2", EntryState.Cached, 0), ("inserted", EntryState.Added, 0), ("2.1", EntryState.Cached, 0), ("2.2", EntryState.Cached, 0)));
+            Assert.Equal(5, table.AsCached().Count); // [1.1, 1.2, inserted, 2.1, 2.2]
+            AssertTableEntries(table.AsCached(), ImmutableArray.Create(("1.1", EntryState.Cached, 0), ("1.2", EntryState.Cached, 0), ("inserted", EntryState.Cached, 0), ("2.1", EntryState.Cached, 0), ("2.2", EntryState.Cached, 0)));
+        }
+
+        [Fact, WorkItem("https://github.com/dotnet/roslyn/issues/67123")]
+        public void Node_Table_When_Previous_Was_Smaller_InsertedIntoEndValue()
+        {
+            ImmutableArray<string> values = ImmutableArray.Create("1", "2");
+            var inputNode = new InputNode<string>(_ => values).WithTrackingName("Input");
+
+            var transformNode = new TransformNode<string, string>(inputNode, (a, ct) =>
+            {
+                return a switch
+                {
+                    "1" => ImmutableArray.Create("1.1", "1.2"),
+                    "2" => ImmutableArray.Create("2.1", "2.2"),
+                    _ => ImmutableArray.Create("2.1", "inserted", "2.2")
+                };
+            }, name: "Select");
+
+            var select2 = new TransformNode<string, string>(transformNode, (a, ct) => a, name: "Select2");
+
+            DriverStateTable.Builder dstBuilder = GetBuilder(DriverStateTable.Empty, trackIncrementalGeneratorSteps: false);
+            var table = dstBuilder.GetLatestStateTableForNode(select2);
+
+            AssertTableEntries(table, ImmutableArray.Create(("1.1", EntryState.Added, 0), ("1.2", EntryState.Added, 0), ("2.1", EntryState.Added, 0), ("2.2", EntryState.Added, 0)));
+            Assert.Equal(4, table.AsCached().Count); // [1.1, 1.2, 2.1, 2.2]
+            AssertTableEntries(table.AsCached(), ImmutableArray.Create(("1.1", EntryState.Cached, 0), ("1.2", EntryState.Cached, 0), ("2.1", EntryState.Cached, 0), ("2.2", EntryState.Cached, 0)));
+
+            // change the input so we can re-run, this time with the extra value inserted
+            values = ImmutableArray.Create("1", "3");
+            dstBuilder = GetBuilder(dstBuilder.ToImmutable(), trackIncrementalGeneratorSteps: false);
+            table = dstBuilder.GetLatestStateTableForNode(select2);
+
+            AssertTableEntries(table, ImmutableArray.Create(("1.1", EntryState.Cached, 0), ("1.2", EntryState.Cached, 0), ("2.1", EntryState.Cached, 0), ("inserted", EntryState.Modified, 0), ("2.2", EntryState.Added, 0)));
+            Assert.Equal(5, table.AsCached().Count); // [1.1, 1.2, 2.1, inserted, 2.2]
+            AssertTableEntries(table.AsCached(), ImmutableArray.Create(("1.1", EntryState.Cached, 0), ("1.2", EntryState.Cached, 0), ("2.1", EntryState.Cached, 0), ("inserted", EntryState.Cached, 0), ("2.2", EntryState.Cached, 0)));
+        }
+
+        [Fact, WorkItem("https://github.com/dotnet/roslyn/issues/67123")]
+        public void Node_Table_When_Previous_Was_Smaller_InsertedIntoMiddleValue()
+        {
+            ImmutableArray<string> values = ImmutableArray.Create("1", "2", "3");
+            var inputNode = new InputNode<string>(_ => values).WithTrackingName("Input");
+
+            var transformNode = new TransformNode<string, string>(inputNode, (a, ct) =>
+            {
+                return a switch
+                {
+                    "1" => ImmutableArray.Create("1.1", "1.2"),
+                    "2" => ImmutableArray.Create("2.1", "2.2"),
+                    "3" => ImmutableArray.Create("3.1", "3.2"),
+                    _ => ImmutableArray.Create("2.1", "inserted", "2.2")
+                };
+            }, name: "Select");
+
+            var select2 = new TransformNode<string, string>(transformNode, (a, ct) => a, name: "Select2");
+
+            DriverStateTable.Builder dstBuilder = GetBuilder(DriverStateTable.Empty, trackIncrementalGeneratorSteps: false);
+            var table = dstBuilder.GetLatestStateTableForNode(select2);
+
+            AssertTableEntries(table, ImmutableArray.Create(("1.1", EntryState.Added, 0), ("1.2", EntryState.Added, 0), ("2.1", EntryState.Added, 0), ("2.2", EntryState.Added, 0), ("3.1", EntryState.Added, 0), ("3.2", EntryState.Added, 0)));
+            Assert.Equal(6, table.AsCached().Count); // [1.1, 1.2, 2.1, 2.2, 3.1, 3.2]
+            AssertTableEntries(table.AsCached(), ImmutableArray.Create(("1.1", EntryState.Cached, 0), ("1.2", EntryState.Cached, 0), ("2.1", EntryState.Cached, 0), ("2.2", EntryState.Cached, 0), ("3.1", EntryState.Cached, 0), ("3.2", EntryState.Cached, 0)));
+
+            // change the input so we can re-run, this time with the extra value inserted
+            values = ImmutableArray.Create("1", "4", "3");
+            dstBuilder = GetBuilder(dstBuilder.ToImmutable(), trackIncrementalGeneratorSteps: false);
+            table = dstBuilder.GetLatestStateTableForNode(select2);
+
+            AssertTableEntries(table, ImmutableArray.Create(("1.1", EntryState.Cached, 0), ("1.2", EntryState.Cached, 0), ("2.1", EntryState.Cached, 0), ("inserted", EntryState.Modified, 0), ("2.2", EntryState.Added, 0), ("3.1", EntryState.Cached, 0), ("3.2", EntryState.Cached, 0)));
+            Assert.Equal(7, table.AsCached().Count); // [1.1, 1.2, 2.1, inserted, 2.2, 3.1, 3.2]
+            AssertTableEntries(table.AsCached(), ImmutableArray.Create(("1.1", EntryState.Cached, 0), ("1.2", EntryState.Cached, 0), ("2.1", EntryState.Cached, 0), ("inserted", EntryState.Cached, 0), ("2.2", EntryState.Cached, 0), ("3.1", EntryState.Cached, 0), ("3.2", EntryState.Cached, 0)));
+        }
+
+        [Fact, WorkItem("https://github.com/dotnet/roslyn/issues/67123")]
+        public void Node_Table_When_Previous_Was_Larger_2()
+        {
+            ImmutableArray<string> values = ImmutableArray.Create("1", "2");
+            var inputNode = new InputNode<string>(_ => values).WithTrackingName("Input");
+
+            var transformNode = new TransformNode<string, string>(inputNode, (a, ct) =>
+            {
+                return a switch
+                {
+                    "1" => ImmutableArray.Create("1.1", "1.2"),
+                    "2" => ImmutableArray.Create("2.1", "2.2"),
+                    _ => ImmutableArray.Create("1.1")
+                };
+            }, name: "Select");
+
+            var select2 = new TransformNode<string, string>(transformNode, (a, ct) => a, name: "Select2");
+
+            DriverStateTable.Builder dstBuilder = GetBuilder(DriverStateTable.Empty, trackIncrementalGeneratorSteps: false);
+            var table = dstBuilder.GetLatestStateTableForNode(select2);
+
+            AssertTableEntries(table, ImmutableArray.Create(("1.1", EntryState.Added, 0), ("1.2", EntryState.Added, 0), ("2.1", EntryState.Added, 0), ("2.2", EntryState.Added, 0)));
+            Assert.Equal(4, table.AsCached().Count); // [1.1, 1.2, 2.1, 2.2]
+            AssertTableEntries(table.AsCached(), ImmutableArray.Create(("1.1", EntryState.Cached, 0), ("1.2", EntryState.Cached, 0), ("2.1", EntryState.Cached, 0), ("2.2", EntryState.Cached, 0)));
+
+            // change the input so we can re-run, this time when we produce less values
+            values = ImmutableArray.Create("3", "2");
+            dstBuilder = GetBuilder(dstBuilder.ToImmutable(), trackIncrementalGeneratorSteps: false);
+            table = dstBuilder.GetLatestStateTableForNode(select2);
+
+            AssertTableEntries(table, ImmutableArray.Create(("1.1", EntryState.Cached, 0), ("1.2", EntryState.Removed, 0), ("2.1", EntryState.Cached, 0), ("2.2", EntryState.Cached, 0)));
+            Assert.Equal(3, table.AsCached().Count); // [1.1, 2.1, 2.2]
+            AssertTableEntries(table.AsCached(), ImmutableArray.Create(("1.1", EntryState.Cached, 0), ("2.1", EntryState.Cached, 0), ("2.2", EntryState.Cached, 0)));
+        }
+
         private void AssertTableEntries<T>(NodeStateTable<T> table, IList<(T Item, EntryState State, int OutputIndex)> expected)
         {
             int index = 0;
@@ -1093,7 +1343,8 @@ namespace Microsoft.CodeAnalysis.CSharp.Semantic.UnitTests.SourceGeneration
         {
             var options = CSharpParseOptions.Default.WithLanguageVersion(LanguageVersion.CSharp10);
             var c = CSharpCompilation.Create("empty");
-            var state = new GeneratorDriverState(options,
+            var state = new GeneratorDriverState(
+                    options,
                     CompilerAnalyzerConfigOptionsProvider.Empty,
                     ImmutableArray<ISourceGenerator>.Empty,
                     ImmutableArray<IIncrementalGenerator>.Empty,
@@ -1101,10 +1352,8 @@ namespace Microsoft.CodeAnalysis.CSharp.Semantic.UnitTests.SourceGeneration
                     ImmutableArray<GeneratorState>.Empty,
                     previous,
                     SyntaxStore.Empty,
-                    disabledOutputs: IncrementalGeneratorOutputKind.None,
-                    runtime: TimeSpan.Zero,
-                    trackIncrementalGeneratorSteps: trackIncrementalGeneratorSteps,
-                    parseOptionsChanged: false);
+                    driverOptions: new GeneratorDriverOptions(IncrementalGeneratorOutputKind.None, trackIncrementalGeneratorSteps),
+                    runtime: TimeSpan.Zero);
 
             return new DriverStateTable.Builder(c, state, SyntaxStore.Empty.ToBuilder(c, ImmutableArray<SyntaxInputNode>.Empty, trackIncrementalGeneratorSteps, cancellationToken: default));
         }

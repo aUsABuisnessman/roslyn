@@ -46,12 +46,7 @@ namespace Microsoft.CodeAnalysis.CSharp.ExpressionEvaluator.UnitTests
             var compilation0 = CreateCompilation(source, options: TestOptions.DebugDll);
             WithRuntimeInstance(compilation0, runtime =>
             {
-                ImmutableArray<MetadataBlock> blocks;
-                Guid moduleVersionId;
-                ISymUnmanagedReader symReader;
-                int methodToken;
-                int localSignatureToken;
-                GetContextState(runtime, "C.M", out blocks, out moduleVersionId, out symReader, out methodToken, out localSignatureToken);
+                GetContextState(runtime, "C.M", out var blocks, out var moduleVersionId, out var symReader, out var methodToken, out var localSignatureToken);
 
                 var appDomain = new AppDomain();
                 uint ilOffset = ExpressionCompilerTestHelpers.GetOffset(methodToken, symReader);
@@ -341,13 +336,13 @@ namespace Microsoft.CodeAnalysis.CSharp.ExpressionEvaluator.UnitTests
             var runtime = CreateRuntimeInstance(moduleB, referencesB);
             ImmutableArray<MetadataBlock> typeBlocks;
             ImmutableArray<MetadataBlock> methodBlocks;
-            Guid moduleVersionId;
+            ModuleId moduleId;
             ISymUnmanagedReader symReader;
             int typeToken;
             int methodToken;
             int localSignatureToken;
-            GetContextState(runtime, "C", out typeBlocks, out moduleVersionId, out symReader, out typeToken, out localSignatureToken);
-            GetContextState(runtime, "C.F", out methodBlocks, out moduleVersionId, out symReader, out methodToken, out localSignatureToken);
+            GetContextState(runtime, "C", out typeBlocks, out moduleId, out symReader, out typeToken, out localSignatureToken);
+            GetContextState(runtime, "C.F", out methodBlocks, out moduleId, out symReader, out methodToken, out localSignatureToken);
 
             // Get non-empty scopes.
             var scopes = symReader.GetScopes(methodToken, methodVersion, EvaluationContext.IsLocalScopeEndInclusive).WhereAsArray(s => s.Locals.Length > 0);
@@ -358,16 +353,16 @@ namespace Microsoft.CodeAnalysis.CSharp.ExpressionEvaluator.UnitTests
             endOffset = outerScope.EndOffset - 1;
 
             // At start of outer scope.
-            var context = CreateMethodContext(appDomain, methodBlocks, symReader, moduleVersionId, methodToken, methodVersion, (uint)startOffset, localSignatureToken, MakeAssemblyReferencesKind.AllAssemblies);
+            var context = CreateMethodContext(appDomain, methodBlocks, symReader, moduleId, methodToken, methodVersion, (uint)startOffset, localSignatureToken, MakeAssemblyReferencesKind.AllAssemblies);
 
             // At end of outer scope - not reused because of the nested scope.
             var previous = appDomain.GetMetadataContext();
-            context = CreateMethodContext(appDomain, methodBlocks, symReader, moduleVersionId, methodToken, methodVersion, (uint)endOffset, localSignatureToken, MakeAssemblyReferencesKind.AllAssemblies);
+            context = CreateMethodContext(appDomain, methodBlocks, symReader, moduleId, methodToken, methodVersion, (uint)endOffset, localSignatureToken, MakeAssemblyReferencesKind.AllAssemblies);
             Assert.NotEqual(context, GetMetadataContext(previous).EvaluationContext); // Not required, just documentary.
 
             // At type context.
             previous = appDomain.GetMetadataContext();
-            context = CreateTypeContext(appDomain, typeBlocks, moduleVersionId, typeToken, MakeAssemblyReferencesKind.AllAssemblies);
+            context = CreateTypeContext(appDomain, typeBlocks, moduleId, typeToken, MakeAssemblyReferencesKind.AllAssemblies);
             Assert.NotEqual(context, GetMetadataContext(previous).EvaluationContext);
             Assert.Null(context.MethodContextReuseConstraints);
             Assert.Equal(context.Compilation, GetMetadataContext(previous).Compilation);
@@ -381,10 +376,10 @@ namespace Microsoft.CodeAnalysis.CSharp.ExpressionEvaluator.UnitTests
                 var constraints = GetMetadataContext(previous).EvaluationContext.MethodContextReuseConstraints;
                 if (constraints.HasValue)
                 {
-                    Assert.Equal(scope == previousScope, constraints.GetValueOrDefault().AreSatisfied(moduleVersionId, methodToken, methodVersion, offset));
+                    Assert.Equal(scope == previousScope, constraints.GetValueOrDefault().AreSatisfied(moduleId, methodToken, methodVersion, offset));
                 }
 
-                context = CreateMethodContext(appDomain, methodBlocks, symReader, moduleVersionId, methodToken, methodVersion, (uint)offset, localSignatureToken, MakeAssemblyReferencesKind.AllAssemblies);
+                context = CreateMethodContext(appDomain, methodBlocks, symReader, moduleId, methodToken, methodVersion, (uint)offset, localSignatureToken, MakeAssemblyReferencesKind.AllAssemblies);
                 var previousEvaluationContext = GetMetadataContext(previous).EvaluationContext;
                 if (scope == previousScope)
                 {
@@ -407,20 +402,20 @@ namespace Microsoft.CodeAnalysis.CSharp.ExpressionEvaluator.UnitTests
             // With different references.
             var fewerReferences = new[] { MscorlibRef };
             runtime = CreateRuntimeInstance(moduleB, fewerReferences);
-            GetContextState(runtime, "C.F", out methodBlocks, out moduleVersionId, out symReader, out methodToken, out localSignatureToken);
+            GetContextState(runtime, "C.F", out methodBlocks, out moduleId, out symReader, out methodToken, out localSignatureToken);
 
             // Different references. No reuse.
-            context = CreateMethodContext(appDomain, methodBlocks, symReader, moduleVersionId, methodToken, methodVersion, (uint)endOffset, localSignatureToken, MakeAssemblyReferencesKind.AllAssemblies);
+            context = CreateMethodContext(appDomain, methodBlocks, symReader, moduleId, methodToken, methodVersion, (uint)endOffset, localSignatureToken, MakeAssemblyReferencesKind.AllAssemblies);
             Assert.NotEqual(context, GetMetadataContext(previous).EvaluationContext);
-            Assert.True(GetMetadataContext(previous).EvaluationContext.MethodContextReuseConstraints.Value.AreSatisfied(moduleVersionId, methodToken, methodVersion, endOffset));
+            Assert.True(GetMetadataContext(previous).EvaluationContext.MethodContextReuseConstraints.Value.AreSatisfied(moduleId, methodToken, methodVersion, endOffset));
             Assert.NotEqual(context.Compilation, GetMetadataContext(previous).Compilation);
             previous = appDomain.GetMetadataContext();
 
             // Different method. Should reuse Compilation.
-            GetContextState(runtime, "C.G", out methodBlocks, out moduleVersionId, out symReader, out methodToken, out localSignatureToken);
-            context = CreateMethodContext(appDomain, methodBlocks, symReader, moduleVersionId, methodToken, methodVersion, ilOffset: 0, localSignatureToken: localSignatureToken, MakeAssemblyReferencesKind.AllAssemblies);
+            GetContextState(runtime, "C.G", out methodBlocks, out moduleId, out symReader, out methodToken, out localSignatureToken);
+            context = CreateMethodContext(appDomain, methodBlocks, symReader, moduleId, methodToken, methodVersion, ilOffset: 0, localSignatureToken: localSignatureToken, MakeAssemblyReferencesKind.AllAssemblies);
             Assert.NotEqual(context, GetMetadataContext(previous).EvaluationContext);
-            Assert.False(GetMetadataContext(previous).EvaluationContext.MethodContextReuseConstraints.Value.AreSatisfied(moduleVersionId, methodToken, methodVersion, 0));
+            Assert.False(GetMetadataContext(previous).EvaluationContext.MethodContextReuseConstraints.Value.AreSatisfied(moduleId, methodToken, methodVersion, 0));
             Assert.Equal(context.Compilation, GetMetadataContext(previous).Compilation);
 
             // No EvaluationContext. Should reuse Compilation
@@ -428,7 +423,7 @@ namespace Microsoft.CodeAnalysis.CSharp.ExpressionEvaluator.UnitTests
             previous = appDomain.GetMetadataContext();
             Assert.Null(GetMetadataContext(previous).EvaluationContext);
             Assert.NotNull(GetMetadataContext(previous).Compilation);
-            context = CreateMethodContext(appDomain, methodBlocks, symReader, moduleVersionId, methodToken, methodVersion, ilOffset: 0, localSignatureToken: localSignatureToken, MakeAssemblyReferencesKind.AllAssemblies);
+            context = CreateMethodContext(appDomain, methodBlocks, symReader, moduleId, methodToken, methodVersion, ilOffset: 0, localSignatureToken: localSignatureToken, MakeAssemblyReferencesKind.AllAssemblies);
             Assert.Null(GetMetadataContext(previous).EvaluationContext);
             Assert.NotNull(context);
             Assert.Equal(context.Compilation, GetMetadataContext(previous).Compilation);
@@ -2345,7 +2340,7 @@ class C
     }
 }
 ";
-            var comp = CreateCompilationWithMscorlib45(source, options: TestOptions.UnsafeDebugDll);
+            var comp = CreateCompilationWithMscorlib461(source, options: TestOptions.UnsafeDebugDll);
             WithRuntimeInstance(comp, runtime =>
             {
                 var context = CreateMethodContext(runtime, "C.Main");
@@ -2380,7 +2375,7 @@ class C
     }
 }
 ";
-            var comp = CreateCompilationWithMscorlib45(source, options: TestOptions.UnsafeDebugDll);
+            var comp = CreateCompilationWithMscorlib461(source, options: TestOptions.UnsafeDebugDll);
             WithRuntimeInstance(comp, runtime =>
             {
                 var context = CreateMethodContext(runtime, "C.Main");
@@ -4902,7 +4897,7 @@ class C
     {
     }
 }";
-            var compilation0 = CreateCompilationWithMscorlib45(source, options: TestOptions.DebugDll);
+            var compilation0 = CreateCompilationWithMscorlib461(source, options: TestOptions.DebugDll);
             WithRuntimeInstance(compilation0, runtime =>
             {
                 var context = CreateMethodContext(runtime, "C.Main");
@@ -5602,7 +5597,7 @@ class C
 
             using (var pinnedMetadata = new PinnedBlob(TestResources.ExpressionCompiler.NoValidTables))
             {
-                var corruptMetadata = ModuleInstance.Create(pinnedMetadata.Pointer, pinnedMetadata.Size, default(Guid));
+                var corruptMetadata = ModuleInstance.Create(pinnedMetadata.Pointer, pinnedMetadata.Size, id: default);
 
                 var runtime = RuntimeInstance.Create(new[] { corruptMetadata, comp.ToModuleInstance(), MscorlibRef.ToModuleInstance() });
                 var context = CreateMethodContext(runtime, "C.M");
@@ -5919,7 +5914,7 @@ public class C<T>
     }
 }
 ";
-            var comp = CreateCompilationWithMscorlib45(source);
+            var comp = CreateCompilationWithMscorlib461(source);
             WithRuntimeInstance(comp, runtime =>
             {
                 var context = CreateMethodContext(runtime, "C.<>c__0.<M>b__0_0");
@@ -5952,7 +5947,7 @@ public class C
     {
     }
 }";
-            var compilation = CreateCompilationWithMscorlib45(source);
+            var compilation = CreateCompilationWithMscorlib461(source);
             WithRuntimeInstance(compilation, runtime =>
             {
                 var context = CreateMethodContext(runtime, "C.M");
@@ -6032,11 +6027,11 @@ public class C
                 var runtime = CreateRuntimeInstance(module, new[] { MscorlibRef, ExpressionCompilerTestHelpers.IntrinsicAssemblyReference });
 
                 ImmutableArray<MetadataBlock> blocks;
-                Guid moduleVersionId;
+                ModuleId moduleId;
                 ISymUnmanagedReader symReader2;
                 int methodToken;
                 int localSignatureToken;
-                GetContextState(runtime, "C.M", out blocks, out moduleVersionId, out symReader2, out methodToken, out localSignatureToken);
+                GetContextState(runtime, "C.M", out blocks, out moduleId, out symReader2, out methodToken, out localSignatureToken);
 
                 Assert.Same(symReader, symReader2);
 
@@ -6047,7 +6042,7 @@ public class C
                     new AppDomain(),
                     blocks,
                     symReader,
-                    moduleVersionId,
+                    moduleId,
                     methodToken: methodToken,
                     methodVersion: 1,
                     ilOffset: 0,
@@ -6067,7 +6062,7 @@ public class C
                     new AppDomain(),
                     blocks,
                     symReader,
-                    moduleVersionId,
+                    moduleId,
                     methodToken: methodToken,
                     methodVersion: 2,
                     ilOffset: 0,
@@ -6154,7 +6149,7 @@ class C
     {
     }
 }";
-            var compilation0 = CreateCompilationWithMscorlib45(source, options: TestOptions.DebugDll);
+            var compilation0 = CreateCompilationWithMscorlib461(source, options: TestOptions.DebugDll);
             WithRuntimeInstance(compilation0, runtime =>
             {
                 var context = CreateMethodContext(runtime, methodName: "C.M");
@@ -6193,7 +6188,7 @@ class C
         M(() => x);
     }
 }";
-            var comp = CreateCompilationWithMscorlib45(source);
+            var comp = CreateCompilationWithMscorlib461(source);
             WithRuntimeInstance(comp, runtime =>
             {
                 var context = CreateMethodContext(runtime, "C.M");
@@ -6265,18 +6260,18 @@ class C
             WithRuntimeInstance(compilation0, runtime =>
             {
                 ImmutableArray<MetadataBlock> blocks;
-                Guid moduleVersionId;
+                ModuleId moduleId;
                 ISymUnmanagedReader symReader;
                 int methodToken;
                 int localSignatureToken;
-                GetContextState(runtime, "C.M", out blocks, out moduleVersionId, out symReader, out methodToken, out localSignatureToken);
+                GetContextState(runtime, "C.M", out blocks, out moduleId, out symReader, out methodToken, out localSignatureToken);
 
                 var appDomain = new AppDomain();
                 var context = CreateMethodContext(
                     appDomain,
                     blocks,
                     symReader,
-                    moduleVersionId,
+                    moduleId,
                     methodToken: methodToken,
                     methodVersion: 1,
                     ilOffset: ExpressionCompilerTestHelpers.NoILOffset,
@@ -6302,7 +6297,7 @@ class C
                     appDomain,
                     blocks,
                     symReader,
-                    moduleVersionId,
+                    moduleId,
                     methodToken: methodToken,
                     methodVersion: 1,
                     ilOffset: 0,
@@ -6315,7 +6310,7 @@ class C
                     appDomain,
                     blocks,
                     symReader,
-                    moduleVersionId,
+                    moduleId,
                     methodToken: methodToken,
                     methodVersion: 1,
                     ilOffset: ExpressionCompilerTestHelpers.NoILOffset,
@@ -6416,7 +6411,7 @@ class C
         }
     }
 }";
-            var compilation0 = CreateCompilationWithMscorlib45(
+            var compilation0 = CreateCompilationWithMscorlib461(
                 source,
                 options: TestOptions.DebugDll,
                 references: new[] { SystemCoreRef });
@@ -7050,8 +7045,7 @@ class Program
 }");
         }
 
-        [Fact]
-        [WorkItem(67177, "https://github.com/dotnet/roslyn/issues/67177")]
+        [Fact, WorkItem(67177, "https://github.com/dotnet/roslyn/issues/67177")]
         public void CapturingAndShadowing_01()
         {
             var source =
@@ -7112,8 +7106,7 @@ class Program
 }");
         }
 
-        [Fact]
-        [WorkItem(67177, "https://github.com/dotnet/roslyn/issues/67177")]
+        [Fact, WorkItem(67177, "https://github.com/dotnet/roslyn/issues/67177")]
         public void CapturingAndShadowing_02()
         {
             var source =
@@ -7173,8 +7166,7 @@ class Program
 }");
         }
 
-        [Fact]
-        [WorkItem(67177, "https://github.com/dotnet/roslyn/issues/67177")]
+        [Fact, WorkItem(67177, "https://github.com/dotnet/roslyn/issues/67177")]
         public void CapturingAndShadowing_03()
         {
             var source =
@@ -7237,8 +7229,7 @@ class Program
 }");
         }
 
-        [Fact]
-        [WorkItem(67177, "https://github.com/dotnet/roslyn/issues/67177")]
+        [Fact, WorkItem(67177, "https://github.com/dotnet/roslyn/issues/67177")]
         public void CapturingAndShadowing_04()
         {
             var source =
@@ -7299,8 +7290,7 @@ class Program
 }");
         }
 
-        [Fact]
-        [WorkItem(67177, "https://github.com/dotnet/roslyn/issues/67177")]
+        [Fact, WorkItem(67177, "https://github.com/dotnet/roslyn/issues/67177")]
         public void CapturingAndShadowing_05()
         {
             var source =
@@ -7358,8 +7348,7 @@ class Program
 }");
         }
 
-        [Fact]
-        [WorkItem(67177, "https://github.com/dotnet/roslyn/issues/67177")]
+        [Fact, WorkItem(67177, "https://github.com/dotnet/roslyn/issues/67177")]
         public void CapturingAndShadowing_06()
         {
             var source =
@@ -7417,8 +7406,7 @@ class Program
 }");
         }
 
-        [Fact]
-        [WorkItem(67177, "https://github.com/dotnet/roslyn/issues/67177")]
+        [Fact, WorkItem(67177, "https://github.com/dotnet/roslyn/issues/67177")]
         public void CapturingAndShadowing_07()
         {
             var source =
@@ -7475,8 +7463,7 @@ class Program
 }");
         }
 
-        [Fact]
-        [WorkItem(67177, "https://github.com/dotnet/roslyn/issues/67177")]
+        [Fact, WorkItem(67177, "https://github.com/dotnet/roslyn/issues/67177")]
         public void CapturingAndShadowing_11()
         {
             var source =
@@ -7530,8 +7517,7 @@ class Program
 }");
         }
 
-        [Fact]
-        [WorkItem(67177, "https://github.com/dotnet/roslyn/issues/67177")]
+        [Fact, WorkItem(67177, "https://github.com/dotnet/roslyn/issues/67177")]
         public void CapturingAndShadowing_12()
         {
             var source =
@@ -7584,8 +7570,7 @@ class Program
 }");
         }
 
-        [Fact]
-        [WorkItem(67177, "https://github.com/dotnet/roslyn/issues/67177")]
+        [Fact, WorkItem(67177, "https://github.com/dotnet/roslyn/issues/67177")]
         public void CapturingAndShadowing_13()
         {
             var source =
@@ -7641,8 +7626,7 @@ class Program
 }");
         }
 
-        [Fact]
-        [WorkItem(67177, "https://github.com/dotnet/roslyn/issues/67177")]
+        [Fact, WorkItem(67177, "https://github.com/dotnet/roslyn/issues/67177")]
         public void CapturingAndShadowing_14()
         {
             var source =
@@ -7697,8 +7681,7 @@ class Program
 }");
         }
 
-        [Fact]
-        [WorkItem(67177, "https://github.com/dotnet/roslyn/issues/67177")]
+        [Fact, WorkItem(67177, "https://github.com/dotnet/roslyn/issues/67177")]
         public void CapturingAndShadowing_15()
         {
             var source =
@@ -7755,8 +7738,7 @@ class Program
 }");
         }
 
-        [Fact]
-        [WorkItem(67177, "https://github.com/dotnet/roslyn/issues/67177")]
+        [Fact, WorkItem(67177, "https://github.com/dotnet/roslyn/issues/67177")]
         public void CapturingAndShadowing_16()
         {
             var source =
@@ -7813,8 +7795,7 @@ class Program
 }");
         }
 
-        [Fact]
-        [WorkItem(67177, "https://github.com/dotnet/roslyn/issues/67177")]
+        [Fact, WorkItem(67177, "https://github.com/dotnet/roslyn/issues/67177")]
         public void CapturingAndShadowing_17()
         {
             var source =
@@ -7871,8 +7852,7 @@ class Program
 }");
         }
 
-        [Fact]
-        [WorkItem(67177, "https://github.com/dotnet/roslyn/issues/67177")]
+        [Fact, WorkItem(67177, "https://github.com/dotnet/roslyn/issues/67177")]
         [WorkItem(67188, "https://github.com/dotnet/roslyn/issues/67188")]
         public void CapturingAndShadowing_18()
         {
@@ -10691,6 +10671,586 @@ class Base(int x);
   .maxstack  1
   IL_0000:  ldsfld     ""int C.y""
   IL_0005:  ret
+}");
+        }
+
+        [Theory]
+        [CombinatorialData]
+        public void PrimaryConstructors_06001_CapturedParameterInsideCapturingAsyncInstanceMethod(bool isStruct)
+        {
+            var source =
+@"
+using System.Threading.Tasks;
+" +
+(isStruct ? "struct" : "class") + @" C(int y)
+{
+    async Task<int> M()
+    {
+#line 100
+        ;
+#line 200
+        return y;
+    }
+}";
+
+            var testData = Evaluate(
+                source,
+                OutputKind.DynamicallyLinkedLibrary,
+                methodName: "C.<M>d__2.MoveNext",
+                atLineNumber: 100, debugFormat: DebugInformationFormat.PortablePdb,
+                expr: "y");
+
+            var methodData = testData.GetMethodData("<>x.<>m0");
+
+            Assert.True(methodData.Method.IsStatic);
+            AssertEx.Equal("System.Int32 <>x.<>m0(C.<M>d__2 <>4__this)", ((MethodSymbol)methodData.Method).ToTestDisplayString());
+            methodData.VerifyIL(
+                isStruct ?
+@"
+{
+  // Code size       12 (0xc)
+  .maxstack  1
+  .locals init (int V_0,
+                int V_1,
+                System.Exception V_2)
+  IL_0000:  ldarg.0
+  IL_0001:  ldflda     ""C C.<M>d__2.<>4__this""
+  IL_0006:  ldfld      ""int C.<y>P""
+  IL_000b:  ret
+}" :
+@"
+{
+  // Code size       12 (0xc)
+  .maxstack  1
+  .locals init (int V_0,
+                int V_1,
+                System.Exception V_2)
+  IL_0000:  ldarg.0
+  IL_0001:  ldfld      ""C C.<M>d__2.<>4__this""
+  IL_0006:  ldfld      ""int C.<y>P""
+  IL_000b:  ret
+}");
+        }
+
+        [Theory]
+        [CombinatorialData]
+        public void PrimaryConstructors_06002_CapturedParameterInsideCapturingIteratorInstanceMethod(bool isStruct)
+        {
+            var source =
+@"
+using System.Collections.Generic;
+" +
+(isStruct ? "struct" : "class") + @" C(int y)
+{
+    public IEnumerable<int> M()
+    {
+#line 100
+        yield return 9;
+#line 200
+        yield return y;
+    }
+}
+";
+
+            var testData = Evaluate(
+                source,
+                OutputKind.DynamicallyLinkedLibrary,
+                methodName: "C.<M>d__2.MoveNext",
+                atLineNumber: 100, debugFormat: DebugInformationFormat.PortablePdb,
+                expr: "y");
+
+            var methodData = testData.GetMethodData("<>x.<>m0");
+
+            Assert.True(methodData.Method.IsStatic);
+            AssertEx.Equal("System.Int32 <>x.<>m0(C.<M>d__2 <>4__this)", ((MethodSymbol)methodData.Method).ToTestDisplayString());
+            methodData.VerifyIL(
+                isStruct ?
+@"
+{
+  // Code size       12 (0xc)
+  .maxstack  1
+  .locals init (int V_0)
+  IL_0000:  ldarg.0
+  IL_0001:  ldflda     ""C C.<M>d__2.<>4__this""
+  IL_0006:  ldfld      ""int C.<y>P""
+  IL_000b:  ret
+}" :
+@"
+{
+  // Code size       12 (0xc)
+  .maxstack  1
+  .locals init (int V_0)
+  IL_0000:  ldarg.0
+  IL_0001:  ldfld      ""C C.<M>d__2.<>4__this""
+  IL_0006:  ldfld      ""int C.<y>P""
+  IL_000b:  ret
+}");
+        }
+
+        [Fact]
+        public void PrimaryConstructors_06003_CapturedParameterInsideCapturingInstanceMethodLambda_NoDisplayClass()
+        {
+            var source =
+@"
+using System.Collections.Generic;
+
+class C(int y)
+{
+    public int M()
+    {
+        System.Func<int> x = ()
+#line 100
+                                => y;
+#line 200
+        return x();
+    }
+}
+";
+
+            var testData = Evaluate(
+                source,
+                OutputKind.DynamicallyLinkedLibrary,
+                methodName: "C.<M>b__2_0",
+                atLineNumber: 100, debugFormat: DebugInformationFormat.PortablePdb,
+                expr: "y");
+
+            var methodData = testData.GetMethodData("<>x.<>m0");
+
+            Assert.True(methodData.Method.IsStatic);
+            AssertEx.Equal("System.Int32 <>x.<>m0(C <>4__this)", ((MethodSymbol)methodData.Method).ToTestDisplayString());
+            methodData.VerifyIL(
+@"
+{
+  // Code size        7 (0x7)
+  .maxstack  1
+  IL_0000:  ldarg.0
+  IL_0001:  ldfld      ""int C.<y>P""
+  IL_0006:  ret
+}");
+        }
+
+        [Fact]
+        public void PrimaryConstructors_06004_CapturedParameterInsideCapturingInstanceMethodLambda_WithDisplayClass()
+        {
+            var source =
+@"
+using System.Collections.Generic;
+
+class C(int y)
+{
+    public int M(int a)
+    {
+        System.Func<int> x = ()
+#line 100
+                                => y + a;
+#line 200
+        return x();
+    }
+}
+";
+
+            var testData = Evaluate(
+                source,
+                OutputKind.DynamicallyLinkedLibrary,
+                methodName: "C.<>c__DisplayClass2_0.<M>b__0",
+                atLineNumber: 100, debugFormat: DebugInformationFormat.PortablePdb,
+                expr: "y");
+
+            var methodData = testData.GetMethodData("<>x.<>m0");
+
+            Assert.True(methodData.Method.IsStatic);
+            AssertEx.Equal("System.Int32 <>x.<>m0(C.<>c__DisplayClass2_0 <>4__this)", ((MethodSymbol)methodData.Method).ToTestDisplayString());
+            methodData.VerifyIL(
+@"
+{
+  // Code size       12 (0xc)
+  .maxstack  1
+  IL_0000:  ldarg.0
+  IL_0001:  ldfld      ""C C.<>c__DisplayClass2_0.<>4__this""
+  IL_0006:  ldfld      ""int C.<y>P""
+  IL_000b:  ret
+}");
+        }
+
+        [Fact]
+        public void PrimaryConstructors_06005_NotCapturedParameterInsideAsyncLambda()
+        {
+            var source =
+@"
+using System.Threading.Tasks;
+
+class C(int y)
+{
+    public System.Func<Task<int>> F = async Task<int> () =>
+                                      {
+#line 100
+                                          await Task.Yield();
+#line 200
+                                          return y;
+                                      };
+}";
+
+            var testData = Evaluate(
+                source,
+                OutputKind.DynamicallyLinkedLibrary,
+                methodName: "C.<>c__DisplayClass0_0.<<-ctor>b__0>d.MoveNext",
+                atLineNumber: 100, debugFormat: DebugInformationFormat.PortablePdb,
+                expr: "y");
+
+            var methodData = testData.GetMethodData("<>x.<>m0");
+
+            Assert.True(methodData.Method.IsStatic);
+            AssertEx.Equal("System.Int32 <>x.<>m0(C.<>c__DisplayClass0_0.<<-ctor>b__0>d <>4__this)", ((MethodSymbol)methodData.Method).ToTestDisplayString());
+            methodData.VerifyIL(
+@"
+{
+  // Code size       12 (0xc)
+  .maxstack  1
+  .locals init (int V_0,
+                int V_1,
+                System.Runtime.CompilerServices.YieldAwaitable.YieldAwaiter V_2,
+                System.Runtime.CompilerServices.YieldAwaitable V_3,
+                C.<>c__DisplayClass0_0.<<-ctor>b__0>d V_4,
+                System.Exception V_5)
+  IL_0000:  ldarg.0
+  IL_0001:  ldfld      ""C.<>c__DisplayClass0_0 C.<>c__DisplayClass0_0.<<-ctor>b__0>d.<>4__this""
+  IL_0006:  ldfld      ""int C.<>c__DisplayClass0_0.y""
+  IL_000b:  ret
+}");
+        }
+
+        [Fact]
+        public void PrimaryConstructors_06006_NotCapturedParameterInsideIteratorLocalFunction()
+        {
+            var source =
+@"
+using System.Collections.Generic;
+
+class C(int y)
+{
+    public System.Func<IEnumerable<int>> F = IEnumerable<int>() =>
+                                             {
+                                                 IEnumerable<int> local()
+                                                 {
+#line 100
+                                                     yield return 9;
+#line 200
+                                                     yield return y;
+                                                 };
+
+                                                 return local();
+                                             };
+}";
+
+            var testData = Evaluate(
+                source,
+                OutputKind.DynamicallyLinkedLibrary,
+                methodName: "C.<>c__DisplayClass0_0.<<-ctor>g__local|1>d.MoveNext",
+                atLineNumber: 100, debugFormat: DebugInformationFormat.PortablePdb,
+                expr: "y");
+
+            var methodData = testData.GetMethodData("<>x.<>m0");
+
+            Assert.True(methodData.Method.IsStatic);
+            AssertEx.Equal("System.Int32 <>x.<>m0(C.<>c__DisplayClass0_0.<<-ctor>g__local|1>d <>4__this)", ((MethodSymbol)methodData.Method).ToTestDisplayString());
+            methodData.VerifyIL(
+@"
+{
+  // Code size       12 (0xc)
+  .maxstack  1
+  .locals init (int V_0)
+  IL_0000:  ldarg.0
+  IL_0001:  ldfld      ""C.<>c__DisplayClass0_0 C.<>c__DisplayClass0_0.<<-ctor>g__local|1>d.<>4__this""
+  IL_0006:  ldfld      ""int C.<>c__DisplayClass0_0.y""
+  IL_000b:  ret
+}");
+        }
+
+        [Fact]
+        public void InlineArrays_01_ElementAccess()
+        {
+            var source = @"
+class C
+{
+    static void M(Buffer4 b, int i)
+    {
+#line 100
+        ;
+#line 200
+
+        b[i]++;
+    }
+}
+
+[System.Runtime.CompilerServices.InlineArray(4)]
+public struct Buffer4
+{
+    private int _element0;
+}
+";
+
+            var testData = Evaluate(
+                source,
+                OutputKind.DynamicallyLinkedLibrary,
+                targetFramework: TargetFramework.Net80,
+                methodName: "C.M",
+                atLineNumber: 100, debugFormat: DebugInformationFormat.PortablePdb,
+                expr: "b[1]");
+
+            var methodData = testData.GetMethodData("<>x.<>m0");
+
+            Assert.True(methodData.Method.IsStatic);
+            AssertEx.Equal("System.Int32 <>x.<>m0(Buffer4 b, System.Int32 i)", ((MethodSymbol)methodData.Method).ToTestDisplayString());
+            methodData.VerifyIL(
+@"
+{
+  // Code size       10 (0xa)
+  .maxstack  2
+  .locals init (System.Span<int> V_0)
+  IL_0000:  ldarga.s   V_0
+  IL_0002:  ldc.i4.1
+  IL_0003:  call       ""ref int <PrivateImplementationDetails>.InlineArrayElementRef<Buffer4, int>(ref Buffer4, int)""
+  IL_0008:  ldind.i4
+  IL_0009:  ret
+}");
+        }
+
+        [Fact]
+        public void InlineArrays_02_ElementAccess()
+        {
+            var source = @"
+class C
+{
+    static void M(Buffer4 b, int i)
+    {
+#line 100
+        ;
+#line 200
+
+        b[i]++;
+    }
+}
+
+[System.Runtime.CompilerServices.InlineArray(4)]
+public struct Buffer4
+{
+    private int _element0;
+}
+";
+
+            var testData = Evaluate(
+                source,
+                OutputKind.DynamicallyLinkedLibrary,
+                targetFramework: TargetFramework.Net80,
+                methodName: "C.M",
+                atLineNumber: 100, debugFormat: DebugInformationFormat.PortablePdb,
+                expr: "b[i]");
+
+            var methodData = testData.GetMethodData("<>x.<>m0");
+
+            Assert.True(methodData.Method.IsStatic);
+            AssertEx.Equal("System.Int32 <>x.<>m0(Buffer4 b, System.Int32 i)", ((MethodSymbol)methodData.Method).ToTestDisplayString());
+            methodData.VerifyIL(
+@"
+{
+  // Code size       19 (0x13)
+  .maxstack  2
+  .locals init (System.Span<int> V_0,
+                System.Span<int> V_1)
+  IL_0000:  ldarga.s   V_0
+  IL_0002:  ldc.i4.4
+  IL_0003:  call       ""System.Span<int> <PrivateImplementationDetails>.InlineArrayAsSpan<Buffer4, int>(ref Buffer4, int)""
+  IL_0008:  stloc.1
+  IL_0009:  ldloca.s   V_1
+  IL_000b:  ldarg.1
+  IL_000c:  call       ""ref int System.Span<int>.this[int].get""
+  IL_0011:  ldind.i4
+  IL_0012:  ret
+}");
+        }
+
+        [Fact]
+        public void InlineArrays_03_Slice()
+        {
+            var source = @"
+class C
+{
+    static void M(Buffer4 b, System.Range i)
+    {
+#line 100
+        ;
+#line 200
+
+        _ = b[i];
+    }
+}
+
+[System.Runtime.CompilerServices.InlineArray(4)]
+public struct Buffer4
+{
+    private int _element0;
+}
+";
+
+            var testData = Evaluate(
+                source,
+                OutputKind.DynamicallyLinkedLibrary,
+                targetFramework: TargetFramework.Net80,
+                methodName: "C.M",
+                atLineNumber: 100, debugFormat: DebugInformationFormat.PortablePdb,
+                expr: "b[1..2]");
+
+            var methodData = testData.GetMethodData("<>x.<>m0");
+
+            Assert.True(methodData.Method.IsStatic);
+            AssertEx.Equal("System.Span<System.Int32> <>x.<>m0(Buffer4 b, System.Range i)", ((MethodSymbol)methodData.Method).ToTestDisplayString());
+            methodData.VerifyIL(
+@"
+{
+  // Code size       20 (0x14)
+  .maxstack  3
+  .locals init (System.Range V_0,
+                int V_1,
+                int V_2,
+                System.Index V_3,
+                System.Span<int> V_4,
+                System.Span<int> V_5)
+  IL_0000:  ldarga.s   V_0
+  IL_0002:  ldc.i4.4
+  IL_0003:  call       ""System.Span<int> <PrivateImplementationDetails>.InlineArrayAsSpan<Buffer4, int>(ref Buffer4, int)""
+  IL_0008:  stloc.s    V_5
+  IL_000a:  ldloca.s   V_5
+  IL_000c:  ldc.i4.1
+  IL_000d:  ldc.i4.1
+  IL_000e:  call       ""System.Span<int> System.Span<int>.Slice(int, int)""
+  IL_0013:  ret
+}");
+        }
+
+        [Fact]
+        public void InlineArrays_04_Slice()
+        {
+            var source = @"
+class C
+{
+    static void M(Buffer4 b, System.Range i)
+    {
+#line 100
+        ;
+#line 200
+
+        _ = b[i];
+    }
+}
+
+[System.Runtime.CompilerServices.InlineArray(4)]
+public struct Buffer4
+{
+    private int _element0;
+}
+";
+
+            var testData = Evaluate(
+                source,
+                OutputKind.DynamicallyLinkedLibrary,
+                targetFramework: TargetFramework.Net80,
+                methodName: "C.M",
+                atLineNumber: 100, debugFormat: DebugInformationFormat.PortablePdb,
+                expr: "b[i]");
+
+            var methodData = testData.GetMethodData("<>x.<>m0");
+
+            Assert.True(methodData.Method.IsStatic);
+            AssertEx.Equal("System.Span<System.Int32> <>x.<>m0(Buffer4 b, System.Range i)", ((MethodSymbol)methodData.Method).ToTestDisplayString());
+            methodData.VerifyIL(
+@"
+{
+  // Code size       66 (0x42)
+  .maxstack  3
+  .locals init (System.Range V_0,
+                int V_1,
+                int V_2,
+                System.Index V_3,
+                System.Span<int> V_4,
+                System.Range V_5,
+                int V_6,
+                int V_7,
+                System.Index V_8,
+                System.Span<int> V_9)
+  IL_0000:  ldarga.s   V_0
+  IL_0002:  ldarg.1
+  IL_0003:  stloc.s    V_5
+  IL_0005:  ldloca.s   V_5
+  IL_0007:  call       ""System.Index System.Range.Start.get""
+  IL_000c:  stloc.s    V_8
+  IL_000e:  ldloca.s   V_8
+  IL_0010:  ldc.i4.4
+  IL_0011:  call       ""int System.Index.GetOffset(int)""
+  IL_0016:  stloc.s    V_6
+  IL_0018:  ldloca.s   V_5
+  IL_001a:  call       ""System.Index System.Range.End.get""
+  IL_001f:  stloc.s    V_8
+  IL_0021:  ldloca.s   V_8
+  IL_0023:  ldc.i4.4
+  IL_0024:  call       ""int System.Index.GetOffset(int)""
+  IL_0029:  ldloc.s    V_6
+  IL_002b:  sub
+  IL_002c:  stloc.s    V_7
+  IL_002e:  ldc.i4.4
+  IL_002f:  call       ""System.Span<int> <PrivateImplementationDetails>.InlineArrayAsSpan<Buffer4, int>(ref Buffer4, int)""
+  IL_0034:  stloc.s    V_9
+  IL_0036:  ldloca.s   V_9
+  IL_0038:  ldloc.s    V_6
+  IL_003a:  ldloc.s    V_7
+  IL_003c:  call       ""System.Span<int> System.Span<int>.Slice(int, int)""
+  IL_0041:  ret
+}");
+        }
+
+        [Fact]
+        public void InlineArrays_05_Conversion()
+        {
+            var source = @"
+class C
+{
+    static void M(Buffer4 b)
+    {
+#line 100
+        ;
+#line 200
+
+        _ = (System.Span<int>)b;
+    }
+}
+
+[System.Runtime.CompilerServices.InlineArray(4)]
+public struct Buffer4
+{
+    private int _element0;
+}
+";
+
+            var testData = Evaluate(
+                source,
+                OutputKind.DynamicallyLinkedLibrary,
+                targetFramework: TargetFramework.Net80,
+                methodName: "C.M",
+                atLineNumber: 100, debugFormat: DebugInformationFormat.PortablePdb,
+                expr: "(System.Span<int>)b");
+
+            var methodData = testData.GetMethodData("<>x.<>m0");
+
+            Assert.True(methodData.Method.IsStatic);
+            AssertEx.Equal("System.Span<System.Int32> <>x.<>m0(Buffer4 b)", ((MethodSymbol)methodData.Method).ToTestDisplayString());
+            methodData.VerifyIL(
+@"
+{
+ // Code size        9 (0x9)
+ .maxstack  2
+ IL_0000:  ldarga.s   V_0
+ IL_0002:  ldc.i4.4
+ IL_0003:  call       ""System.Span<int> <PrivateImplementationDetails>.InlineArrayAsSpan<Buffer4, int>(ref Buffer4, int)""
+ IL_0008:  ret
 }");
         }
     }

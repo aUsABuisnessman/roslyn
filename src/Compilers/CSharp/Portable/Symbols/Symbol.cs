@@ -47,11 +47,13 @@ namespace Microsoft.CodeAnalysis.CSharp
             get { return false; }
         }
 
-        internal virtual void ForceComplete(SourceLocation locationOpt, CancellationToken cancellationToken)
+#nullable enable
+        internal virtual void ForceComplete(SourceLocation? locationOpt, Predicate<Symbol>? filter, CancellationToken cancellationToken)
         {
             // must be overridden by source symbols, no-op for other symbols
             Debug.Assert(!this.RequiresCompletion);
         }
+#nullable disable
 
         internal virtual bool HasComplete(CompletionPart part)
         {
@@ -225,6 +227,85 @@ namespace Microsoft.CodeAnalysis.CSharp
         string ISymbolInternal.Name => this.Name;
 
         string ISymbolInternal.MetadataName => this.MetadataName;
+
+        public Cci.TypeMemberVisibility MetadataVisibility
+        {
+            get
+            {
+                //
+                // We need to relax visibility of members in interactive submissions since they might be emitted into multiple assemblies.
+                //
+                // Top-level:
+                //   private                       -> public
+                //   protected                     -> public (compiles with a warning)
+                //   public
+                //   internal                      -> public
+                //
+                // In a nested class:
+                //
+                //   private
+                //   protected
+                //   public
+                //   internal                      -> public
+                //
+                switch (DeclaredAccessibility)
+                {
+                    case Accessibility.Public:
+                        return Cci.TypeMemberVisibility.Public;
+
+                    case Accessibility.Private:
+                        if (ContainingType?.TypeKind == TypeKind.Submission)
+                        {
+                            // top-level private member:
+                            return Cci.TypeMemberVisibility.Public;
+                        }
+                        else
+                        {
+                            return Cci.TypeMemberVisibility.Private;
+                        }
+
+                    case Accessibility.Internal:
+                        if (ContainingAssembly.IsInteractive)
+                        {
+                            // top-level or nested internal member:
+                            return Cci.TypeMemberVisibility.Public;
+                        }
+                        else
+                        {
+                            return Cci.TypeMemberVisibility.Assembly;
+                        }
+
+                    case Accessibility.Protected:
+                        if (ContainingType.TypeKind == TypeKind.Submission)
+                        {
+                            // top-level protected member:
+                            return Cci.TypeMemberVisibility.Public;
+                        }
+                        else
+                        {
+                            return Cci.TypeMemberVisibility.Family;
+                        }
+
+                    case Accessibility.ProtectedAndInternal:
+                        Debug.Assert(ContainingType.TypeKind != TypeKind.Submission);
+                        return Cci.TypeMemberVisibility.FamilyAndAssembly;
+
+                    case Accessibility.ProtectedOrInternal:
+                        if (ContainingAssembly.IsInteractive)
+                        {
+                            // top-level or nested protected internal member:
+                            return Cci.TypeMemberVisibility.Public;
+                        }
+                        else
+                        {
+                            return Cci.TypeMemberVisibility.FamilyOrAssembly;
+                        }
+
+                    default:
+                        throw ExceptionUtilities.UnexpectedValue(DeclaredAccessibility);
+                }
+            }
+        }
 
         ISymbolInternal ISymbolInternal.ContainingSymbol => this.ContainingSymbol;
 
@@ -566,10 +647,12 @@ namespace Microsoft.CodeAnalysis.CSharp
                         break;
 
                     case SymbolKind.NamedType:
-                        if (((NamedTypeSymbol)this).IsSubmissionClass)
+                        var namedType = (NamedTypeSymbol)this;
+                        if (namedType.IsSubmissionClass || namedType.IsExtension)
                         {
                             return false;
                         }
+
                         break;
 
                     case SymbolKind.Property:
@@ -788,20 +871,20 @@ namespace Microsoft.CodeAnalysis.CSharp
         /// <summary>
         /// Build and add synthesized attributes for this symbol.
         /// </summary>
-        internal virtual void AddSynthesizedAttributes(PEModuleBuilder moduleBuilder, ref ArrayBuilder<SynthesizedAttributeData> attributes)
+        internal virtual void AddSynthesizedAttributes(PEModuleBuilder moduleBuilder, ref ArrayBuilder<CSharpAttributeData> attributes)
         {
         }
 
         /// <summary>
         /// Convenience helper called by subclasses to add a synthesized attribute to a collection of attributes.
         /// </summary>
-        internal static void AddSynthesizedAttribute(ref ArrayBuilder<SynthesizedAttributeData> attributes, SynthesizedAttributeData attribute)
+        internal static void AddSynthesizedAttribute(ref ArrayBuilder<CSharpAttributeData> attributes, CSharpAttributeData attribute)
         {
             if (attribute != null)
             {
                 if (attributes == null)
                 {
-                    attributes = new ArrayBuilder<SynthesizedAttributeData>(1);
+                    attributes = new ArrayBuilder<CSharpAttributeData>(1);
                 }
 
                 attributes.Add(attribute);
@@ -872,14 +955,17 @@ namespace Microsoft.CodeAnalysis.CSharp
             => syntaxRef.SyntaxTree == tree &&
                 (!definedWithinSpan.HasValue || syntaxRef.Span.IntersectsWith(definedWithinSpan.Value));
 
-        internal static void ForceCompleteMemberByLocation(SourceLocation locationOpt, Symbol member, CancellationToken cancellationToken)
+#nullable enable
+        internal static void ForceCompleteMemberConditionally(SourceLocation? locationOpt, Predicate<Symbol>? filter, Symbol member, CancellationToken cancellationToken)
         {
-            if (locationOpt == null || member.IsDefinedInSourceTree(locationOpt.SourceTree, locationOpt.SourceSpan, cancellationToken))
+            if ((locationOpt == null || member.IsDefinedInSourceTree(locationOpt.SourceTree, locationOpt.SourceSpan, cancellationToken))
+                && (filter == null || filter(member)))
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                member.ForceComplete(locationOpt, cancellationToken);
+                member.ForceComplete(locationOpt, filter, cancellationToken);
             }
         }
+#nullable disable
 
         /// <summary>
         /// Returns the Documentation Comment ID for the symbol, or null if the symbol doesn't
@@ -1309,6 +1395,7 @@ namespace Microsoft.CodeAnalysis.CSharp
 
         #endregion
 
+#nullable enable
         /// <summary>
         /// True if this symbol has been marked with the <see cref="ObsoleteAttribute"/> attribute. 
         /// This property returns <see cref="ThreeState.Unknown"/> if the <see cref="ObsoleteAttribute"/> attribute hasn't been cracked yet.
@@ -1320,12 +1407,33 @@ namespace Microsoft.CodeAnalysis.CSharp
                 switch (ObsoleteKind)
                 {
                     case ObsoleteAttributeKind.None:
+                    case ObsoleteAttributeKind.WindowsExperimental:
                     case ObsoleteAttributeKind.Experimental:
                         return ThreeState.False;
                     case ObsoleteAttributeKind.Uninitialized:
                         return ThreeState.Unknown;
                     default:
                         return ThreeState.True;
+                }
+            }
+        }
+
+        /// <summary>
+        /// True if this symbol has been marked with the System.Diagnostics.CodeAnalysis.ExperimentalAttribute attribute. 
+        /// This property returns <see cref="ThreeState.Unknown"/> if the attribute hasn't been cracked yet.
+        /// </summary>
+        internal ThreeState ExperimentalState
+        {
+            get
+            {
+                switch (ObsoleteKind)
+                {
+                    case ObsoleteAttributeKind.Experimental:
+                        return ThreeState.True;
+                    case ObsoleteAttributeKind.Uninitialized:
+                        return ThreeState.Unknown;
+                    default:
+                        return ThreeState.False;
                 }
             }
         }
@@ -1340,32 +1448,11 @@ namespace Microsoft.CodeAnalysis.CSharp
         }
 
         /// <summary>
-        /// Returns data decoded from <see cref="ObsoleteAttribute"/> attribute or null if there is no <see cref="ObsoleteAttribute"/> attribute.
+        /// Returns data decoded from <see cref="ObsoleteAttribute"/>/Experimental attribute or null if there is no <see cref="ObsoleteAttribute"/>/Experimental attribute.
         /// This property returns <see cref="Microsoft.CodeAnalysis.ObsoleteAttributeData.Uninitialized"/> if attribute arguments haven't been decoded yet.
         /// </summary>
-        internal abstract ObsoleteAttributeData ObsoleteAttributeData { get; }
-
-        /// <summary>
-        /// Returns true and a <see cref="string"/> from the first <see cref="GuidAttribute"/> on the symbol, 
-        /// the string might be null or an invalid guid representation. False, 
-        /// if there is no <see cref="GuidAttribute"/> with string argument.
-        /// </summary>
-        internal bool GetGuidStringDefaultImplementation(out string guidString)
-        {
-            foreach (var attrData in this.GetAttributes())
-            {
-                if (attrData.IsTargetAttribute(this, AttributeDescription.GuidAttribute))
-                {
-                    if (attrData.TryGetGuidAttributeValue(out guidString))
-                    {
-                        return true;
-                    }
-                }
-            }
-
-            guidString = null;
-            return false;
-        }
+        internal abstract ObsoleteAttributeData? ObsoleteAttributeData { get; }
+#nullable disable
 
         public string ToDisplayString(SymbolDisplayFormat format = null)
         {
@@ -1432,6 +1519,7 @@ namespace Microsoft.CodeAnalysis.CSharp
             RequiredMemberAttribute = 1 << 11,
             ScopedRefAttribute = 1 << 12,
             RefSafetyRulesAttribute = 1 << 13,
+            RequiresLocationAttribute = 1 << 14,
         }
 
         internal bool ReportExplicitUseOfReservedAttributes(in DecodeWellKnownAttributeArguments<AttributeSyntax, CSharpAttributeData, AttributeLocation> arguments, ReservedAttributes reserved)
@@ -1439,14 +1527,20 @@ namespace Microsoft.CodeAnalysis.CSharp
             var attribute = arguments.Attribute;
             var diagnostics = (BindingDiagnosticBag)arguments.Diagnostics;
 
+            Debug.Assert(attribute is SourceAttributeData);
+
             if ((reserved & ReservedAttributes.DynamicAttribute) != 0 &&
-                attribute.IsTargetAttribute(this, AttributeDescription.DynamicAttribute))
+                attribute.IsTargetAttribute(AttributeDescription.DynamicAttribute))
             {
                 // DynamicAttribute should not be set explicitly.
                 diagnostics.Add(ErrorCode.ERR_ExplicitDynamicAttr, arguments.AttributeSyntaxOpt.Location);
             }
             else if ((reserved & ReservedAttributes.IsReadOnlyAttribute) != 0 &&
                 reportExplicitUseOfReservedAttribute(attribute, arguments, AttributeDescription.IsReadOnlyAttribute))
+            {
+            }
+            else if ((reserved & ReservedAttributes.RequiresLocationAttribute) != 0 &&
+                reportExplicitUseOfReservedAttribute(attribute, arguments, AttributeDescription.RequiresLocationAttribute))
             {
             }
             else if ((reserved & ReservedAttributes.IsUnmanagedAttribute) != 0 &&
@@ -1458,12 +1552,12 @@ namespace Microsoft.CodeAnalysis.CSharp
             {
             }
             else if ((reserved & ReservedAttributes.TupleElementNamesAttribute) != 0 &&
-                attribute.IsTargetAttribute(this, AttributeDescription.TupleElementNamesAttribute))
+                attribute.IsTargetAttribute(AttributeDescription.TupleElementNamesAttribute))
             {
                 diagnostics.Add(ErrorCode.ERR_ExplicitTupleElementNamesAttribute, arguments.AttributeSyntaxOpt.Location);
             }
             else if ((reserved & ReservedAttributes.NullableAttribute) != 0 &&
-                attribute.IsTargetAttribute(this, AttributeDescription.NullableAttribute))
+                attribute.IsTargetAttribute(AttributeDescription.NullableAttribute))
             {
                 // NullableAttribute should not be set explicitly.
                 diagnostics.Add(ErrorCode.ERR_ExplicitNullableAttribute, arguments.AttributeSyntaxOpt.Location);
@@ -1481,19 +1575,19 @@ namespace Microsoft.CodeAnalysis.CSharp
             {
             }
             else if ((reserved & ReservedAttributes.CaseSensitiveExtensionAttribute) != 0 &&
-                attribute.IsTargetAttribute(this, AttributeDescription.CaseSensitiveExtensionAttribute))
+                attribute.IsTargetAttribute(AttributeDescription.CaseSensitiveExtensionAttribute))
             {
                 // ExtensionAttribute should not be set explicitly.
                 diagnostics.Add(ErrorCode.ERR_ExplicitExtension, arguments.AttributeSyntaxOpt.Location);
             }
             else if ((reserved & ReservedAttributes.RequiredMemberAttribute) != 0 &&
-                attribute.IsTargetAttribute(this, AttributeDescription.RequiredMemberAttribute))
+                attribute.IsTargetAttribute(AttributeDescription.RequiredMemberAttribute))
             {
                 // Do not use 'System.Runtime.CompilerServices.RequiredMemberAttribute'. Use the 'required' keyword on required fields and properties instead.
                 diagnostics.Add(ErrorCode.ERR_ExplicitRequiredMember, arguments.AttributeSyntaxOpt.Location);
             }
             else if ((reserved & ReservedAttributes.ScopedRefAttribute) != 0 &&
-                attribute.IsTargetAttribute(this, AttributeDescription.ScopedRefAttribute))
+                attribute.IsTargetAttribute(AttributeDescription.ScopedRefAttribute))
             {
                 // Do not use 'System.Runtime.CompilerServices.ScopedRefAttribute'. Use the 'scoped' keyword instead.
                 diagnostics.Add(ErrorCode.ERR_ExplicitScopedRef, arguments.AttributeSyntaxOpt.Location);
@@ -1510,7 +1604,7 @@ namespace Microsoft.CodeAnalysis.CSharp
 
             bool reportExplicitUseOfReservedAttribute(CSharpAttributeData attribute, in DecodeWellKnownAttributeArguments<AttributeSyntax, CSharpAttributeData, AttributeLocation> arguments, in AttributeDescription attributeDescription)
             {
-                if (attribute.IsTargetAttribute(this, attributeDescription))
+                if (attribute.IsTargetAttribute(attributeDescription))
                 {
                     // Do not use '{FullName}'. This is reserved for compiler usage.
                     diagnostics.Add(ErrorCode.ERR_ExplicitReservedAttr, arguments.AttributeSyntaxOpt.Location, attributeDescription.FullName);
@@ -1575,7 +1669,7 @@ namespace Microsoft.CodeAnalysis.CSharp
                     builder.AddValue(((ParameterSymbol)this).TypeWithAnnotations);
                     break;
                 case SymbolKind.TypeParameter:
-                    if (this is SourceTypeParameterSymbolBase typeParameter)
+                    if (this is SourceTypeParameterSymbol typeParameter)
                     {
                         builder.AddValue(typeParameter.GetSynthesizedNullableAttributeValue());
                         foreach (var constraintType in typeParameter.ConstraintTypesNoUseSiteDiagnostics)
@@ -1647,6 +1741,13 @@ namespace Microsoft.CodeAnalysis.CSharp
                     throw ExceptionUtilities.UnexpectedValue(variable.Kind);
             }
 
+            if (containingSymbol.GetIsNewExtensionMember()
+                && variable is ParameterSymbol { ContainingSymbol: TypeSymbol { IsExtension: true } })
+            {
+                // An extension member doesn't capture the extension parameter
+                return false;
+            }
+
             // Walk up the containing symbols until we find the target function, in which
             // case the variable is not captured by the target function, or null, in which
             // case it is.
@@ -1686,6 +1787,9 @@ namespace Microsoft.CodeAnalysis.CSharp
                 return this.IsAbstract;
             }
         }
+
+        bool ISymbolInternal.IsExtern
+            => IsExtern;
 
         Accessibility ISymbolInternal.DeclaredAccessibility
         {

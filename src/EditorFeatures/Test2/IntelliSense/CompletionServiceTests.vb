@@ -4,6 +4,7 @@
 
 Imports System.Collections.Immutable
 Imports System.Composition
+Imports System.Threading
 Imports Microsoft.CodeAnalysis.Completion
 Imports Microsoft.CodeAnalysis.Editor.UnitTests.Workspaces
 Imports Microsoft.CodeAnalysis.Host
@@ -32,7 +33,7 @@ Namespace Microsoft.CodeAnalysis.Editor.UnitTests.IntelliSense
                 GetType(NoCompilationContentTypeLanguageService),
                 GetType(TestCompletionProvider))
 
-            Using workspace = TestWorkspace.Create(workspaceDefinition, composition:=composition)
+            Using workspace = EditorTestWorkspace.Create(workspaceDefinition, composition:=composition)
                 Dim document = workspace.CurrentSolution.Projects.First.Documents.First
                 Dim completionService = New TestCompletionService(workspace.Services.SolutionServices, workspace.GetService(Of IAsynchronousOperationListenerProvider)())
 
@@ -97,7 +98,7 @@ $$
 
             Dim composition = EditorTestCompositions.EditorFeatures.AddParts(GetType(MyRoleProvider))
 
-            Using workspace = TestWorkspace.Create(workspaceDefinition, composition:=composition)
+            Using workspace = EditorTestWorkspace.Create(workspaceDefinition, composition:=composition)
                 Dim document = workspace.CurrentSolution.Projects.First.Documents.First
                 Dim completionService = document.GetRequiredLanguageService(Of CompletionService)()
 
@@ -134,7 +135,7 @@ $$
                 Return Task.CompletedTask
             End Function
 
-            Public Overrides Function GetDescriptionAsync(document As Document, item As CompletionItem, cancellationToken As Threading.CancellationToken) As Task(Of CompletionDescription)
+            Public Overrides Function GetDescriptionAsync(document As Document, item As CompletionItem, cancellationToken As CancellationToken) As Task(Of CompletionDescription)
                 Return Task.FromResult(CompletionDescription.FromText(DescriptionText))
             End Function
         End Class

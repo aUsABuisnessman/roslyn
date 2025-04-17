@@ -3,15 +3,12 @@
 ' See the LICENSE file in the project root for more information.
 
 Imports System.Collections.Concurrent
-Imports System.Collections.Generic
 Imports System.Collections.Immutable
-Imports System.Collections.ObjectModel
+Imports System.Threading
 Imports Microsoft.Cci
 Imports Microsoft.CodeAnalysis.PooledObjects
-Imports Microsoft.CodeAnalysis.Text
-Imports Microsoft.CodeAnalysis.VisualBasic.Symbols.Metadata.PE
 Imports Microsoft.CodeAnalysis.VisualBasic.Symbols
-Imports Microsoft.CodeAnalysis.VisualBasic.Syntax
+Imports Microsoft.CodeAnalysis.VisualBasic.Symbols.Metadata.PE
 
 Namespace Microsoft.CodeAnalysis.VisualBasic.Symbols.Retargeting
 
@@ -265,7 +262,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic.Symbols.Retargeting
                     If type.ContainingModule Is _retargetingModule.UnderlyingModule Then
                         ' This is a local type explicitly declared in source. Get information from TypeIdentifier attribute.
                         For Each attrData In type.GetAttributes()
-                            Dim signatureIndex = attrData.GetTargetAttributeSignatureIndex(type, AttributeDescription.TypeIdentifierAttribute)
+                            Dim signatureIndex = attrData.GetTargetAttributeSignatureIndex(AttributeDescription.TypeIdentifierAttribute)
 
                             If signatureIndex <> -1 Then
                                 Debug.Assert(signatureIndex = 0 OrElse signatureIndex = 1)
@@ -649,7 +646,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic.Symbols.Retargeting
                     Dim newTypeModifiers = RetargetModifiers(oldTypeModifiers, modifiersHaveChanged)
                     Dim newRefModifiers = RetargetModifiers(oldRefModifiers, modifiersHaveChanged)
 
-                    Threading.Interlocked.CompareExchange(lazyCustomModifiers, CustomModifiersTuple.Create(newTypeModifiers, newRefModifiers), Nothing)
+                    Interlocked.CompareExchange(lazyCustomModifiers, CustomModifiersTuple.Create(newTypeModifiers, newRefModifiers), Nothing)
                 End If
 
                 Return lazyCustomModifiers
@@ -660,11 +657,6 @@ Namespace Microsoft.CodeAnalysis.VisualBasic.Symbols.Retargeting
             End Function
 
             Friend Iterator Function RetargetAttributes(attributes As IEnumerable(Of VisualBasicAttributeData)) As IEnumerable(Of VisualBasicAttributeData)
-#If DEBUG Then
-                Dim x As SynthesizedAttributeData = Nothing
-                Dim y As SourceAttributeData = x ' Code below relies on the fact that SynthesizedAttributeData derives from SourceAttributeData.
-                x = DirectCast(y, SynthesizedAttributeData)
-#End If
                 For Each attrData In attributes
                     Yield RetargetAttributeData(attrData)
                 Next
@@ -696,13 +688,11 @@ Namespace Microsoft.CodeAnalysis.VisualBasic.Symbols.Retargeting
                 ' Must create a RetargetingAttributeData even if the types and
                 ' arguments are unchanged since the AttributeData instance is
                 ' used to resolve System.Type which may require retargeting.
-                Return New RetargetingAttributeData(oldAttribute.ApplicationSyntaxReference,
+                Return New RetargetingAttributeData(oldAttribute,
                                                     newAttributeType,
                                                     newAttributeCtor,
                                                     newCtorArguments,
-                                                    newNamedArguments,
-                                                    oldAttribute.IsConditionallyOmitted,
-                                                    hasErrors:=oldAttribute.HasErrors OrElse newAttributeCtor Is Nothing)
+                                                    newNamedArguments)
             End Function
 
             Private Function RetargetAttributeConstructorArguments(constructorArguments As ImmutableArray(Of TypedConstant)) As ImmutableArray(Of TypedConstant)

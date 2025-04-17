@@ -72,6 +72,7 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
 
         public override bool IsReferenceType => false;
         public override bool IsValueType => true;
+        internal sealed override ParameterSymbol? ExtensionParameter => null;
         public override TypeKind TypeKind => TypeKind.FunctionPointer;
         public override bool IsRefLikeType => false;
         public override bool IsReadOnly => false;
@@ -92,7 +93,7 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
         public override ImmutableArray<Symbol> GetMembers() => ImmutableArray<Symbol>.Empty;
         public override ImmutableArray<Symbol> GetMembers(string name) => ImmutableArray<Symbol>.Empty;
         public override ImmutableArray<NamedTypeSymbol> GetTypeMembers() => ImmutableArray<NamedTypeSymbol>.Empty;
-        public override ImmutableArray<NamedTypeSymbol> GetTypeMembers(string name) => ImmutableArray<NamedTypeSymbol>.Empty;
+        public override ImmutableArray<NamedTypeSymbol> GetTypeMembers(ReadOnlyMemory<char> name) => ImmutableArray<NamedTypeSymbol>.Empty;
         internal override TResult Accept<TArgument, TResult>(CSharpSymbolVisitor<TArgument, TResult> visitor, TArgument a) => visitor.VisitFunctionPointerType(this, a);
         internal override ImmutableArray<NamedTypeSymbol> InterfacesNoUseSiteDiagnostics(ConsList<TypeSymbol>? basesBeingResolved = null) => ImmutableArray<NamedTypeSymbol>.Empty;
 
@@ -220,6 +221,12 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
         internal override IEnumerable<(MethodSymbol Body, MethodSymbol Implemented)> SynthesizedInterfaceMethodImpls()
         {
             return SpecializedCollections.EmptyEnumerable<(MethodSymbol Body, MethodSymbol Implemented)>();
+        }
+
+        internal override bool HasInlineArrayAttribute(out int length)
+        {
+            length = 0;
+            return false;
         }
     }
 }

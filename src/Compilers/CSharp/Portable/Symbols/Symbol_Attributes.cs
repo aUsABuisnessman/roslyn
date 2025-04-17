@@ -162,6 +162,10 @@ namespace Microsoft.CodeAnalysis.CSharp
             {
                 kind = ObsoleteAttributeKind.Deprecated;
             }
+            else if (CSharpAttributeData.IsTargetEarlyAttribute(type, syntax, AttributeDescription.WindowsExperimentalAttribute))
+            {
+                kind = ObsoleteAttributeKind.WindowsExperimental;
+            }
             else if (CSharpAttributeData.IsTargetEarlyAttribute(type, syntax, AttributeDescription.ExperimentalAttribute))
             {
                 kind = ObsoleteAttributeKind.Experimental;
@@ -193,7 +197,6 @@ namespace Microsoft.CodeAnalysis.CSharp
             }
             return true;
         }
-#nullable disable
 
         /// <summary>
         /// This method is called by the binder when it is finished binding a set of attributes on the symbol so that
@@ -210,16 +213,22 @@ namespace Microsoft.CodeAnalysis.CSharp
         /// this (base) method.
         /// </para>
         /// </remarks>
-#nullable enable
         protected void DecodeWellKnownAttribute(ref DecodeWellKnownAttributeArguments<AttributeSyntax, CSharpAttributeData, AttributeLocation> arguments)
         {
             Debug.Assert(arguments.Diagnostics.DiagnosticBag is not null);
             Debug.Assert(arguments.AttributeSyntaxOpt is not null);
-            if (arguments.Attribute.IsTargetAttribute(this, AttributeDescription.CompilerFeatureRequiredAttribute))
+            if (arguments.Attribute.IsTargetAttribute(AttributeDescription.CompilerFeatureRequiredAttribute))
             {
                 // Do not use '{FullName}'. This is reserved for compiler usage.
                 arguments.Diagnostics.DiagnosticBag.Add(ErrorCode.ERR_ExplicitReservedAttr, arguments.AttributeSyntaxOpt.Location, AttributeDescription.CompilerFeatureRequiredAttribute.FullName);
-                return;
+            }
+            else if (arguments.Attribute.IsTargetAttribute(AttributeDescription.ExperimentalAttribute))
+            {
+                if (!SyntaxFacts.IsValidIdentifier((string?)arguments.Attribute.CommonConstructorArguments[0].ValueInternal))
+                {
+                    var attrArgumentLocation = arguments.Attribute.GetAttributeArgumentLocation(parameterIndex: 0);
+                    arguments.Diagnostics.DiagnosticBag.Add(ErrorCode.ERR_InvalidExperimentalDiagID, attrArgumentLocation);
+                }
             }
 
             DecodeWellKnownAttributeImpl(ref arguments);
@@ -293,7 +302,7 @@ namespace Microsoft.CodeAnalysis.CSharp
             AttributeLocation symbolPart = AttributeLocation.None,
             bool earlyDecodingOnly = false,
             Binder? binderOpt = null,
-            Func<AttributeSyntax, bool>? attributeMatchesOpt = null,
+            Func<AttributeSyntax, Binder?, bool>? attributeMatchesOpt = null,
             Action<AttributeSyntax>? beforeAttributePartBound = null,
             Action<AttributeSyntax>? afterAttributePartBound = null)
         {
@@ -410,7 +419,13 @@ namespace Microsoft.CodeAnalysis.CSharp
                         {
                             var boundAttribute = boundAttributeArray[i];
                             Debug.Assert(boundAttribute is not null);
-                            NullableWalker.AnalyzeIfNeeded(binders[i], boundAttribute, boundAttribute.Syntax, diagnostics.DiagnosticBag);
+                            Binder attributeBinder = binders[i];
+                            if (boundAttribute.Constructor is { } ctor)
+                            {
+                                Binder.CheckRequiredMembersInObjectInitializer(ctor, ImmutableArray<BoundExpression>.CastUp(boundAttribute.NamedArguments), boundAttribute.Syntax, diagnostics);
+                                attributeBinder.ReportDiagnosticsIfObsolete(diagnostics, ctor, boundAttribute.Syntax, hasBaseReceiver: false);
+                            }
+                            NullableWalker.AnalyzeIfNeeded(attributeBinder, boundAttribute, boundAttribute.Syntax, diagnostics.DiagnosticBag);
                         }
                     }
 
@@ -458,7 +473,7 @@ namespace Microsoft.CodeAnalysis.CSharp
                     {
                         CSharpAttributeData boundAttribute = boundAttributes[i];
 
-                        if (!boundAttribute.HasErrors && boundAttribute.IsTargetAttribute(this, AttributeDescription.TypeForwardedToAttribute) &&
+                        if (!boundAttribute.HasErrors && boundAttribute.IsTargetAttribute(AttributeDescription.TypeForwardedToAttribute) &&
                             boundAttribute.CommonConstructorArguments[0].ValueInternal is TypeSymbol &&
                             attributesToBind[i].ArgumentList?.Arguments[0].Expression.Location is { } location)
                         {
@@ -571,7 +586,7 @@ namespace Microsoft.CodeAnalysis.CSharp
             AttributeLocation symbolPart,
             BindingDiagnosticBag diagnostics,
             CSharpCompilation compilation,
-            Func<AttributeSyntax, bool> attributeMatchesOpt,
+            Func<AttributeSyntax, Binder, bool> attributeMatchesOpt,
             Binder rootBinderOpt,
             out ImmutableArray<Binder> binders)
         {
@@ -609,7 +624,7 @@ namespace Microsoft.CodeAnalysis.CSharp
                             {
                                 foreach (var attribute in attributesToBind)
                                 {
-                                    if (attributeMatchesOpt(attribute))
+                                    if (attributeMatchesOpt(attribute, rootBinderOpt))
                                     {
                                         syntaxBuilder.Add(attribute);
                                         attributesToBindCount++;
@@ -651,7 +666,7 @@ namespace Microsoft.CodeAnalysis.CSharp
         }
 
 #nullable enable
-        private Binder GetAttributeBinder(SyntaxList<AttributeListSyntax> attributeDeclarationSyntaxList, CSharpCompilation compilation, Binder? rootBinder = null)
+        protected Binder GetAttributeBinder(SyntaxList<AttributeListSyntax> attributeDeclarationSyntaxList, CSharpCompilation compilation, Binder? rootBinder = null)
         {
             var binder = rootBinder ?? compilation.GetBinderFactory(attributeDeclarationSyntaxList.Node!.SyntaxTree).GetBinder(attributeDeclarationSyntaxList.Node);
             binder = new ContextualAttributeBinder(binder, this);
@@ -928,15 +943,18 @@ namespace Microsoft.CodeAnalysis.CSharp
         }
 
         /// <summary>
-        /// Ensure that attributes are bound and the ObsoleteState of this symbol is known.
+        /// Ensure that attributes are bound and the ObsoleteState/ExperimentalState of this symbol is known.
         /// </summary>
         internal void ForceCompleteObsoleteAttribute()
         {
-            if (this.ObsoleteState == ThreeState.Unknown)
+            if (this.ObsoleteKind == ObsoleteAttributeKind.Uninitialized)
             {
                 this.GetAttributes();
             }
             Debug.Assert(this.ObsoleteState != ThreeState.Unknown, "ObsoleteState should be true or false now.");
+            Debug.Assert(this.ExperimentalState != ThreeState.Unknown, "ExperimentalState should be true or false now.");
+
+            this.ContainingSymbol?.ForceCompleteObsoleteAttribute();
         }
     }
 }

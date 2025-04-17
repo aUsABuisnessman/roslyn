@@ -2,6 +2,7 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 // See the LICENSE file in the project root for more information.
 
+using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Diagnostics;
 using System.Linq;
@@ -11,7 +12,7 @@ using Roslyn.Utilities;
 
 namespace Microsoft.CodeAnalysis.CSharp.Symbols
 {
-    internal sealed class LambdaSymbol : SourceMethodSymbolWithAttributes
+    internal sealed class LambdaSymbol : SourceMethodSymbol
     {
         private readonly Binder _binder;
         private readonly Symbol _containingSymbol;
@@ -23,7 +24,8 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
         private readonly bool _isSynthesized;
         private readonly bool _isAsync;
         private readonly bool _isStatic;
-        private readonly BindingDiagnosticBag _declarationDiagnostics;
+        private readonly DiagnosticBag _declarationDiagnostics;
+        private readonly HashSet<AssemblySymbol> _declarationDependencies;
 
         /// <summary>
         /// This symbol is used as the return type of a LambdaSymbol when we are interpreting
@@ -64,7 +66,8 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
             _isStatic = unboundLambda.IsStatic;
             // No point in making this lazy. We are always going to need these soon after creation of the symbol.
             _parameters = MakeParameters(compilation, unboundLambda, parameterTypes, parameterRefKinds);
-            _declarationDiagnostics = new BindingDiagnosticBag();
+            _declarationDiagnostics = new DiagnosticBag();
+            _declarationDependencies = new HashSet<AssemblySymbol>();
         }
 
         public MessageID MessageID { get { return _messageID; } }
@@ -111,7 +114,7 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
             return false;
         }
 
-        internal sealed override bool IsMetadataVirtual(bool ignoreInterfaceImplementationChanges = false)
+        internal sealed override bool IsMetadataVirtual(IsMetadataVirtualOption option = IsMetadataVirtualOption.None)
         {
             return false;
         }
@@ -278,23 +281,42 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
         {
             foreach (var parameter in _parameters)
             {
-                parameter.ForceComplete(locationOpt: null, cancellationToken: default);
+                parameter.ForceComplete(locationOpt: null, filter: null, cancellationToken: default);
             }
 
             GetAttributes();
             GetReturnTypeAttributes();
 
-            AsyncMethodChecks(verifyReturnType: HasExplicitReturnType, DiagnosticLocation, _declarationDiagnostics);
+            var diagnostics = BindingDiagnosticBag.GetInstance();
+            Debug.Assert(diagnostics.DiagnosticBag is { });
+            Debug.Assert(diagnostics.DependenciesBag is { });
+
+            AsyncMethodChecks(verifyReturnType: HasExplicitReturnType, DiagnosticLocation, diagnostics);
             if (!HasExplicitReturnType && this.HasAsyncMethodBuilderAttribute(out _))
             {
                 addTo.Add(ErrorCode.ERR_BuilderAttributeDisallowed, DiagnosticLocation);
             }
 
-            addTo.AddRange(_declarationDiagnostics, allowMismatchInDependencyAccumulation: true);
+            _declarationDiagnostics.AddRange(diagnostics.DiagnosticBag);
+            _declarationDependencies.AddAll(diagnostics.DependenciesBag);
+            diagnostics.Free();
+
+            addTo.AddRange(_declarationDiagnostics);
+            addTo.AddDependencies((IReadOnlyCollection<AssemblySymbol>)_declarationDependencies);
         }
 
         internal override void AddDeclarationDiagnostics(BindingDiagnosticBag diagnostics)
-            => _declarationDiagnostics.AddRange(diagnostics);
+        {
+            if (diagnostics.DiagnosticBag is { } diagnosticBag)
+            {
+                _declarationDiagnostics.AddRange(diagnosticBag);
+            }
+
+            if (diagnostics.DependenciesBag is { } dependenciesBag)
+            {
+                _declarationDependencies.AddAll(dependenciesBag);
+            }
+        }
 
         private ImmutableArray<ParameterSymbol> MakeParameters(
             CSharpCompilation compilation,
@@ -323,35 +345,20 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
 
             for (int p = 0; p < unboundLambda.ParameterCount; ++p)
             {
+                var refKind = unboundLambda.RefKind(p);
+                var scope = unboundLambda.DeclaredScope(p);
+                var paramSyntax = unboundLambda.ParameterSyntax(p);
+
                 // If there are no types given in the lambda then use the delegate type.
                 // If the lambda is typed then the types probably match the delegate types;
                 // if they do not, use the lambda types for binding. Either way, if we 
                 // can, then we use the lambda types. (Whatever you do, do not use the names 
                 // in the delegate parameters; they are not in scope!)
-
-                TypeWithAnnotations type;
-                RefKind refKind;
-                ScopedKind scope;
-                ParameterSyntax? paramSyntax = null;
-                if (hasExplicitlyTypedParameterList)
-                {
-                    type = unboundLambda.ParameterTypeWithAnnotations(p);
-                    refKind = unboundLambda.RefKind(p);
-                    scope = unboundLambda.DeclaredScope(p);
-                    paramSyntax = unboundLambda.ParameterSyntax(p);
-                }
-                else if (p < numDelegateParameters)
-                {
-                    type = parameterTypes[p];
-                    refKind = RefKind.None;
-                    scope = ScopedKind.None;
-                }
-                else
-                {
-                    type = TypeWithAnnotations.Create(new ExtendedErrorTypeSymbol(compilation, name: string.Empty, arity: 0, errorInfo: null));
-                    refKind = RefKind.None;
-                    scope = ScopedKind.None;
-                }
+                var type = hasExplicitlyTypedParameterList
+                    ? unboundLambda.ParameterTypeWithAnnotations(p)
+                    : p < numDelegateParameters
+                        ? parameterTypes[p]
+                        : TypeWithAnnotations.Create(new ExtendedErrorTypeSymbol(compilation, name: string.Empty, arity: 0, errorInfo: null));
 
                 var attributeLists = unboundLambda.ParameterAttributes(p);
                 var name = unboundLambda.ParameterName(p);

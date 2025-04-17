@@ -24,9 +24,10 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
         {
             // We currently pack everything into a 32 bit int with the following layout:
             //
-            // |              |n|vvv|yy|s|r|q|z|wwwww|
+            // |          |m|t|a|b|e|n|vvv|yy|s|r|q|z|kkk|wwwww|
             // 
             // w = method kind.  5 bits.
+            // k = ref kind.  3 bits.
             // z = isExtensionMethod. 1 bit.
             // q = isMetadataVirtualIgnoringInterfaceChanges. 1 bit.
             // r = isMetadataVirtual. 1 bit. (At least as true as isMetadataVirtualIgnoringInterfaceChanges.)
@@ -34,12 +35,22 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
             // y = ReturnsVoid. 2 bits.
             // v = NullableContext. 3 bits.
             // n = IsNullableAnalysisEnabled. 1 bit.
+            // e = IsExpressionBody. 1 bit.
+            // b = HasAnyBody. 1 bit.
+            // a = IsVararg. 1 bit.
+            // t = HasThisInitializer. 1 bit.
+            // m = HasExplicitAccessModifier. 1 bit.
             private int _flags;
 
             private const int MethodKindOffset = 0;
             private const int MethodKindSize = 5;
+            private const int MethodKindMask = (1 << MethodKindSize) - 1;
 
-            private const int IsExtensionMethodOffset = MethodKindOffset + MethodKindSize;
+            private const int RefKindOffset = MethodKindOffset + MethodKindSize;
+            private const int RefKindSize = 3;
+            private const int RefKindMask = (1 << RefKindSize) - 1;
+
+            private const int IsExtensionMethodOffset = RefKindOffset + RefKindSize;
             private const int IsExtensionMethodSize = 1;
 
             private const int IsMetadataVirtualIgnoringInterfaceChangesOffset = IsExtensionMethodOffset + IsExtensionMethodSize;
@@ -56,41 +67,80 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
 
             private const int NullableContextOffset = ReturnsVoidOffset + ReturnsVoidSize;
             private const int NullableContextSize = 3;
+            private const int NullableContextMask = (1 << NullableContextSize) - 1;
 
             private const int IsNullableAnalysisEnabledOffset = NullableContextOffset + NullableContextSize;
-#pragma warning disable IDE0051 // Remove unused private members
             private const int IsNullableAnalysisEnabledSize = 1;
+
+            private const int IsExpressionBodiedOffset = IsNullableAnalysisEnabledOffset + IsNullableAnalysisEnabledSize;
+            private const int IsExpressionBodiedSize = 1;
+
+            private const int HasAnyBodyOffset = IsExpressionBodiedOffset + IsExpressionBodiedSize;
+            private const int HasAnyBodySize = 1;
+
+            private const int IsVarargOffset = HasAnyBodyOffset + HasAnyBodySize;
+            private const int IsVarargSize = 1;
+
+            private const int HasThisInitializerOffset = IsVarargOffset + IsVarargSize;
+            private const int HasThisInitializerSize = 1;
+
+            private const int HasExplicitAccessModifierOffset = HasThisInitializerOffset + HasThisInitializerSize;
+#pragma warning disable IDE0051 // Remove unused private members
+            private const int HasExplicitAccessModifierSize = 1;
 #pragma warning restore IDE0051 // Remove unused private members
 
-            private const int MethodKindMask = (1 << MethodKindSize) - 1;
-
+            private const int HasAnyBodyBit = 1 << HasAnyBodyOffset;
+            private const int IsExpressionBodiedBit = 1 << IsExpressionBodiedOffset;
             private const int IsExtensionMethodBit = 1 << IsExtensionMethodOffset;
             private const int IsMetadataVirtualIgnoringInterfaceChangesBit = 1 << IsMetadataVirtualIgnoringInterfaceChangesOffset;
             private const int IsMetadataVirtualBit = 1 << IsMetadataVirtualIgnoringInterfaceChangesOffset;
             private const int IsMetadataVirtualLockedBit = 1 << IsMetadataVirtualLockedOffset;
+            private const int IsVarargBit = 1 << IsVarargOffset;
+            private const int HasThisInitializerBit = 1 << HasThisInitializerOffset;
+            private const int HasExplicitAccessModifierBit = 1 << HasExplicitAccessModifierOffset;
 
             private const int ReturnsVoidBit = 1 << ReturnsVoidOffset;
             private const int ReturnsVoidIsSetBit = 1 << ReturnsVoidOffset + 1;
 
-            private const int NullableContextMask = (1 << NullableContextSize) - 1;
-
             private const int IsNullableAnalysisEnabledBit = 1 << IsNullableAnalysisEnabledOffset;
 
-            public bool TryGetReturnsVoid(out bool value)
+            public bool ReturnsVoid
             {
-                int bits = _flags;
-                value = (bits & ReturnsVoidBit) != 0;
-                return (bits & ReturnsVoidIsSetBit) != 0;
+                get
+                {
+                    int bits = _flags;
+                    var value = (bits & ReturnsVoidBit) != 0;
+                    Debug.Assert((bits & ReturnsVoidIsSetBit) != 0);
+                    return value;
+                }
             }
 
             public void SetReturnsVoid(bool value)
             {
-                ThreadSafeFlagOperations.Set(ref _flags, (int)(ReturnsVoidIsSetBit | (value ? ReturnsVoidBit : 0)));
+                int bits = _flags;
+                Debug.Assert((bits & ReturnsVoidIsSetBit) == 0);
+                Debug.Assert(value || (bits & ReturnsVoidBit) == 0);
+                ThreadSafeFlagOperations.Set(ref _flags, ReturnsVoidIsSetBit | (value ? ReturnsVoidBit : 0));
             }
 
             public MethodKind MethodKind
             {
                 get { return (MethodKind)((_flags >> MethodKindOffset) & MethodKindMask); }
+            }
+
+            public RefKind RefKind
+            {
+                get { return (RefKind)((_flags >> RefKindOffset) & RefKindMask); }
+            }
+
+            public bool HasAnyBody
+            {
+                get { return (_flags & HasAnyBodyBit) != 0; }
+            }
+
+            public bool IsExpressionBodied
+            {
+                get { return (_flags & IsExpressionBodiedBit) != 0; }
             }
 
             public bool IsExtensionMethod
@@ -108,11 +158,23 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
                 get { return (_flags & IsMetadataVirtualLockedBit) != 0; }
             }
 
+            public bool IsVararg
+            {
+                get { return (_flags & IsVarargBit) != 0; }
+            }
+
+            public readonly bool HasThisInitializer
+                => (_flags & HasThisInitializerBit) != 0;
+
+            public readonly bool HasExplicitAccessModifier
+                => (_flags & HasExplicitAccessModifierBit) != 0;
+
 #if DEBUG
             static Flags()
             {
                 // Verify masks are sufficient for values.
                 Debug.Assert(EnumUtilities.ContainsAllValues<MethodKind>(MethodKindMask));
+                Debug.Assert(EnumUtilities.ContainsAllValues<RefKind>(RefKindMask));
                 Debug.Assert(EnumUtilities.ContainsAllValues<NullableContextKind>(NullableContextMask));
             }
 #endif
@@ -124,27 +186,76 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
 
             public Flags(
                 MethodKind methodKind,
+                RefKind refKind,
                 DeclarationModifiers declarationModifiers,
                 bool returnsVoid,
+                bool returnsVoidIsSet,
+                bool hasAnyBody,
+                bool isExpressionBodied,
                 bool isExtensionMethod,
                 bool isNullableAnalysisEnabled,
-                bool isMetadataVirtualIgnoringModifiers = false)
+                bool isVararg,
+                bool isExplicitInterfaceImplementation,
+                bool hasThisInitializer,
+                bool hasExplicitAccessModifier)
             {
-                bool isMetadataVirtual = isMetadataVirtualIgnoringModifiers || ModifiersRequireMetadataVirtual(declarationModifiers);
+                Debug.Assert(!returnsVoid || returnsVoidIsSet);
+
+                bool isMetadataVirtual = (isExplicitInterfaceImplementation && (declarationModifiers & DeclarationModifiers.Static) == 0) || ModifiersRequireMetadataVirtual(declarationModifiers);
 
                 int methodKindInt = ((int)methodKind & MethodKindMask) << MethodKindOffset;
+                int refKindInt = ((int)refKind & RefKindMask) << RefKindOffset;
+                int hasAnyBodyInt = hasAnyBody ? HasAnyBodyBit : 0;
+                int isExpressionBodyInt = isExpressionBodied ? IsExpressionBodiedBit : 0;
                 int isExtensionMethodInt = isExtensionMethod ? IsExtensionMethodBit : 0;
                 int isNullableAnalysisEnabledInt = isNullableAnalysisEnabled ? IsNullableAnalysisEnabledBit : 0;
+                int isVarargInt = isVararg ? IsVarargBit : 0;
                 int isMetadataVirtualIgnoringInterfaceImplementationChangesInt = isMetadataVirtual ? IsMetadataVirtualIgnoringInterfaceChangesBit : 0;
                 int isMetadataVirtualInt = isMetadataVirtual ? IsMetadataVirtualBit : 0;
+                int hasThisInitializerInt = hasThisInitializer ? HasThisInitializerBit : 0;
+                int hasExplicitAccessModifierInt = hasExplicitAccessModifier ? HasExplicitAccessModifierBit : 0;
 
                 _flags = methodKindInt
+                    | refKindInt
+                    | hasAnyBodyInt
+                    | isExpressionBodyInt
                     | isExtensionMethodInt
                     | isNullableAnalysisEnabledInt
+                    | isVarargInt
                     | isMetadataVirtualIgnoringInterfaceImplementationChangesInt
                     | isMetadataVirtualInt
+                    | hasThisInitializerInt
+                    | hasExplicitAccessModifierInt
                     | (returnsVoid ? ReturnsVoidBit : 0)
-                    | ReturnsVoidIsSetBit;
+                    | (returnsVoidIsSet ? ReturnsVoidIsSetBit : 0);
+            }
+
+            public Flags(
+                MethodKind methodKind,
+                RefKind refKind,
+                DeclarationModifiers declarationModifiers,
+                bool returnsVoid,
+                bool returnsVoidIsSet,
+                bool isExpressionBodied,
+                bool isExtensionMethod,
+                bool isNullableAnalysisEnabled,
+                bool isVararg,
+                bool isExplicitInterfaceImplementation,
+                bool hasThisInitializer)
+                : this(methodKind,
+                       refKind,
+                       declarationModifiers,
+                       returnsVoid: returnsVoid,
+                       returnsVoidIsSet: returnsVoidIsSet,
+                       hasAnyBody: false,
+                       isExpressionBodied: isExpressionBodied,
+                       isExtensionMethod: isExtensionMethod,
+                       isNullableAnalysisEnabled: isNullableAnalysisEnabled,
+                       isVararg: isVararg,
+                       isExplicitInterfaceImplementation: isExplicitInterfaceImplementation,
+                       hasThisInitializer: hasThisInitializer,
+                       hasExplicitAccessModifier: false)
+            {
             }
 
             public bool IsMetadataVirtual(bool ignoreInterfaceImplementationChanges = false)
@@ -190,7 +301,7 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
 
         protected SymbolCompletionState state;
 
-        protected DeclarationModifiers DeclarationModifiers;
+        protected readonly DeclarationModifiers DeclarationModifiers;
         protected Flags flags;
 
         private readonly NamedTypeSymbol _containingType;
@@ -222,7 +333,8 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
             NamedTypeSymbol containingType,
             SyntaxReference syntaxReferenceOpt,
             Location location,
-            bool isIterator)
+            bool isIterator,
+            (DeclarationModifiers declarationModifiers, Flags flags) modifiersAndFlags)
             : base(syntaxReferenceOpt, isIterator)
         {
             Debug.Assert(containingType is not null);
@@ -231,6 +343,8 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
 
             _containingType = containingType;
             _location = location;
+            DeclarationModifiers = modifiersAndFlags.declarationModifiers;
+            flags = modifiersAndFlags.flags;
         }
 
         protected void CheckEffectiveAccessibility(TypeWithAnnotations returnType, ImmutableArray<ParameterSymbol> parameters, BindingDiagnosticBag diagnostics)
@@ -264,40 +378,60 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
                 }
             }
 
+            if (!IsStatic && this.GetIsNewExtensionMember() && ContainingType.ExtensionParameter is { } extensionParameter)
+            {
+                if (!extensionParameter.TypeWithAnnotations.IsAtLeastAsVisibleAs(this, ref useSiteInfo))
+                {
+                    // Inconsistent accessibility: parameter type '{1}' is less accessible than method '{0}'
+                    diagnostics.Add(code, GetFirstLocation(), this, extensionParameter.Type);
+                }
+            }
+
             diagnostics.Add(GetFirstLocation(), useSiteInfo);
         }
 
         protected void CheckFileTypeUsage(TypeWithAnnotations returnType, ImmutableArray<ParameterSymbol> parameters, BindingDiagnosticBag diagnostics)
         {
-            if (ContainingType.HasFileLocalTypes())
+            NamedTypeSymbol containingType = ContainingType;
+
+            if (containingType is { IsExtension: true, ContainingType: { } enclosing })
+            {
+                containingType = enclosing;
+            }
+
+            if (containingType.HasFileLocalTypes())
             {
                 return;
             }
 
             if (returnType.Type.HasFileLocalTypes())
             {
-                diagnostics.Add(ErrorCode.ERR_FileTypeDisallowedInSignature, GetFirstLocation(), returnType.Type, ContainingType);
+                diagnostics.Add(ErrorCode.ERR_FileTypeDisallowedInSignature, GetFirstLocation(), returnType.Type, containingType);
             }
 
             foreach (var param in parameters)
             {
                 if (param.Type.HasFileLocalTypes())
                 {
-                    diagnostics.Add(ErrorCode.ERR_FileTypeDisallowedInSignature, GetFirstLocation(), param.Type, ContainingType);
+                    diagnostics.Add(ErrorCode.ERR_FileTypeDisallowedInSignature, GetFirstLocation(), param.Type, containingType);
                 }
             }
         }
 
-        protected void MakeFlags(
+        protected static Flags MakeFlags(
             MethodKind methodKind,
+            RefKind refKind,
             DeclarationModifiers declarationModifiers,
             bool returnsVoid,
+            bool returnsVoidIsSet,
+            bool isExpressionBodied,
             bool isExtensionMethod,
             bool isNullableAnalysisEnabled,
-            bool isMetadataVirtualIgnoringModifiers = false)
+            bool isVarArg,
+            bool isExplicitInterfaceImplementation,
+            bool hasThisInitializer)
         {
-            DeclarationModifiers = declarationModifiers;
-            this.flags = new Flags(methodKind, declarationModifiers, returnsVoid, isExtensionMethod, isNullableAnalysisEnabled, isMetadataVirtualIgnoringModifiers);
+            return new Flags(methodKind, refKind, declarationModifiers, returnsVoid, returnsVoidIsSet, isExpressionBodied, isExtensionMethod, isNullableAnalysisEnabled, isVarArg, isExplicitInterfaceImplementation, hasThisInitializer);
         }
 
         protected void SetReturnsVoid(bool returnsVoid)
@@ -413,8 +547,7 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
         {
             get
             {
-                flags.TryGetReturnsVoid(out bool value);
-                return value;
+                return flags.ReturnsVoid;
             }
         }
 
@@ -426,7 +559,7 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
             }
         }
 
-        public override bool IsExtensionMethod
+        public sealed override bool IsExtensionMethod
         {
             get
             {
@@ -449,13 +582,20 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
             // in NamedTypeSymbolAdapter.cs).
             return this.IsOverride ?
                 this.RequiresExplicitOverride(out _) :
-                !this.IsStatic && this.IsMetadataVirtual(ignoreInterfaceImplementationChanges);
+                !this.IsStatic && this.IsMetadataVirtual(ignoreInterfaceImplementationChanges ? IsMetadataVirtualOption.IgnoreInterfaceImplementationChanges : IsMetadataVirtualOption.None);
         }
 
         // TODO (tomat): sealed?
-        internal override bool IsMetadataVirtual(bool ignoreInterfaceImplementationChanges = false)
+        internal override bool IsMetadataVirtual(IsMetadataVirtualOption option = IsMetadataVirtualOption.None)
         {
-            return this.flags.IsMetadataVirtual(ignoreInterfaceImplementationChanges);
+#if DEBUG
+            if (option == IsMetadataVirtualOption.ForceCompleteIfNeeded && !this.flags.IsMetadataVirtualLocked)
+            {
+                this.ContainingSymbol.ForceComplete(locationOpt: null, filter: null, cancellationToken: CancellationToken.None);
+            }
+#endif
+
+            return this.flags.IsMetadataVirtual(ignoreInterfaceImplementationChanges: option == IsMetadataVirtualOption.IgnoreInterfaceImplementationChanges);
         }
 
         internal void EnsureMetadataVirtual()
@@ -745,8 +885,14 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
             return state.HasComplete(part);
         }
 
-        internal override void ForceComplete(SourceLocation locationOpt, CancellationToken cancellationToken)
+#nullable enable
+        internal override void ForceComplete(SourceLocation? locationOpt, Predicate<Symbol>? filter, CancellationToken cancellationToken)
         {
+            if (filter?.Invoke(this) == false)
+            {
+                return;
+            }
+
             while (true)
             {
                 cancellationToken.ThrowIfCancellationRequested();
@@ -778,7 +924,7 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
                     case CompletionPart.Parameters:
                         foreach (var parameter in this.Parameters)
                         {
-                            parameter.ForceComplete(locationOpt, cancellationToken);
+                            parameter.ForceComplete(locationOpt, filter: null, cancellationToken);
                         }
 
                         state.NotePartComplete(CompletionPart.Parameters);
@@ -787,7 +933,7 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
                     case CompletionPart.TypeParameters:
                         foreach (var typeParameter in this.TypeParameters)
                         {
-                            typeParameter.ForceComplete(locationOpt, cancellationToken);
+                            typeParameter.ForceComplete(locationOpt, filter: null, cancellationToken);
                         }
 
                         state.NotePartComplete(CompletionPart.TypeParameters);
@@ -821,6 +967,7 @@ done:
             CompletionPart allParts = CompletionPart.MethodSymbolAll;
             state.SpinWaitComplete(allParts, cancellationToken);
         }
+#nullable disable
 
         protected sealed override void NoteAttributesComplete(bool forReturnType)
         {
@@ -886,74 +1033,6 @@ done:
             return flags.IsNullableAnalysisEnabled;
         }
 
-        internal override void AddSynthesizedAttributes(PEModuleBuilder moduleBuilder, ref ArrayBuilder<SynthesizedAttributeData> attributes)
-        {
-            base.AddSynthesizedAttributes(moduleBuilder, ref attributes);
-
-            if (IsDeclaredReadOnly && !ContainingType.IsReadOnly)
-            {
-                AddSynthesizedAttribute(ref attributes, moduleBuilder.SynthesizeIsReadOnlyAttribute(this));
-            }
-
-            var compilation = this.DeclaringCompilation;
-
-            if (compilation.ShouldEmitNullableAttributes(this) &&
-                ShouldEmitNullableContextValue(out byte nullableContextValue))
-            {
-                AddSynthesizedAttribute(ref attributes, moduleBuilder.SynthesizeNullableContextAttribute(this, nullableContextValue));
-            }
-
-            if (this.RequiresExplicitOverride(out _))
-            {
-                // On platforms where it is present, add PreserveBaseOverridesAttribute when a methodimpl is used to override a class method.
-                AddSynthesizedAttribute(ref attributes, moduleBuilder.SynthesizePreserveBaseOverridesAttribute());
-            }
-
-            bool isAsync = this.IsAsync;
-            bool isIterator = this.IsIterator;
-
-            if (!isAsync && !isIterator)
-            {
-                return;
-            }
-
-            // The async state machine type is not synthesized until the async method body is rewritten. If we are
-            // only emitting metadata the method body will not have been rewritten, and the async state machine
-            // type will not have been created. In this case, omit the attribute.
-            if (moduleBuilder.CompilationState.TryGetStateMachineType(this, out NamedTypeSymbol stateMachineType))
-            {
-                var arg = new TypedConstant(compilation.GetWellKnownType(WellKnownType.System_Type),
-                    TypedConstantKind.Type, stateMachineType.GetUnboundGenericTypeOrSelf());
-
-                if (isAsync && isIterator)
-                {
-                    AddSynthesizedAttribute(ref attributes,
-                        compilation.TrySynthesizeAttribute(WellKnownMember.System_Runtime_CompilerServices_AsyncIteratorStateMachineAttribute__ctor,
-                            ImmutableArray.Create(arg)));
-                }
-                else if (isAsync)
-                {
-                    AddSynthesizedAttribute(ref attributes,
-                        compilation.TrySynthesizeAttribute(WellKnownMember.System_Runtime_CompilerServices_AsyncStateMachineAttribute__ctor,
-                            ImmutableArray.Create(arg)));
-                }
-                else if (isIterator)
-                {
-                    AddSynthesizedAttribute(ref attributes,
-                        compilation.TrySynthesizeAttribute(WellKnownMember.System_Runtime_CompilerServices_IteratorStateMachineAttribute__ctor,
-                            ImmutableArray.Create(arg)));
-                }
-            }
-
-            if (isAsync && !isIterator)
-            {
-                // Regular async (not async-iterator) kick-off method calls MoveNext, which contains user code.
-                // This means we need to emit DebuggerStepThroughAttribute in order
-                // to have correct stepping behavior during debugging.
-                AddSynthesizedAttribute(ref attributes, compilation.SynthesizeDebuggerStepThroughAttribute());
-            }
-        }
-
         /// <summary>
         /// Checks to see if a body is legal given the current modifiers.
         /// If it is not, a diagnostic is added with the current type.
@@ -1003,7 +1082,10 @@ done:
         /// If the method has both block body and an expression body
         /// present, this is not treated as expression-bodied.
         /// </remarks>
-        internal abstract bool IsExpressionBodied { get; }
+        internal bool IsExpressionBodied => flags.IsExpressionBodied;
+
+        public sealed override RefKind RefKind => this.flags.RefKind;
+        public sealed override bool IsVararg => this.flags.IsVararg;
 
         internal override int CalculateLocalSyntaxOffset(int localPosition, SyntaxTree localTree)
         {

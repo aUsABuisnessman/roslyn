@@ -106,6 +106,8 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
             }
         }
 
+        internal sealed override ParameterSymbol? ExtensionParameter => null;
+
         internal sealed override ManagedKind GetManagedKind(ref CompoundUseSiteInfo<AssemblySymbol> useSiteInfo) => ManagedKind.Managed;
 
         public sealed override bool IsRefLikeType
@@ -139,7 +141,7 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
             return ImmutableArray<Symbol>.Empty;
         }
 
-        public override ImmutableArray<NamedTypeSymbol> GetTypeMembers(string name)
+        public override ImmutableArray<NamedTypeSymbol> GetTypeMembers(ReadOnlyMemory<char> name)
         {
             return ImmutableArray<NamedTypeSymbol>.Empty;
         }
@@ -252,6 +254,12 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
         internal override IEnumerable<(MethodSymbol Body, MethodSymbol Implemented)> SynthesizedInterfaceMethodImpls()
         {
             return SpecializedCollections.EmptyEnumerable<(MethodSymbol Body, MethodSymbol Implemented)>();
+        }
+
+        internal override bool HasInlineArrayAttribute(out int length)
+        {
+            length = 0;
+            return false;
         }
     }
 }

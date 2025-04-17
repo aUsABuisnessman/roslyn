@@ -149,7 +149,7 @@ End Namespace
             Dim tree1 = VisualBasicSyntaxTree.ParseText(source1, path:="file1")
             Dim tree2 = VisualBasicSyntaxTree.ParseText(source2, path:="file2")
             Dim eventQueue = New AsyncQueue(Of CompilationEvent)()
-            Dim compilation = CreateCompilationWithMscorlib45({tree1, tree2}).WithEventQueue(eventQueue)
+            Dim compilation = CreateCompilationWithMscorlib461({tree1, tree2}).WithEventQueue(eventQueue)
 
             ' Invoke SemanticModel.GetDiagnostics to force populate the event queue for symbols in the first source file.
             Dim tree = compilation.SyntaxTrees.[Single](Function(t) t Is tree1)
@@ -204,7 +204,7 @@ End Namespace
             Dim tree1 = VisualBasicSyntaxTree.ParseText(source1, path:="file1")
             Dim tree2 = VisualBasicSyntaxTree.ParseText(source2, path:="file2")
             Dim eventQueue = New AsyncQueue(Of CompilationEvent)()
-            Dim compilation = CreateCompilationWithMscorlib45({tree1, tree2}).WithEventQueue(eventQueue)
+            Dim compilation = CreateCompilationWithMscorlib461({tree1, tree2}).WithEventQueue(eventQueue)
 
             ' Invoke SemanticModel.GetDiagnostics to force populate the event queue for symbols in the first source file.
             Dim tree = compilation.SyntaxTrees.[Single](Function(t) t Is tree1)
@@ -244,7 +244,7 @@ BC31030: Conditional compilation constant '1' is not valid: Identifier expected.
         <Fact>
         Public Sub CompilingCodeWithInvalidSourceCodeKindShouldProvideDiagnostics()
 #Disable Warning BC40000 ' Type or member is obsolete
-            Dim compilation = CreateCompilationWithMscorlib45(String.Empty, parseOptions:=New VisualBasicParseOptions().WithKind(SourceCodeKind.Interactive))
+            Dim compilation = CreateCompilationWithMscorlib461(String.Empty, parseOptions:=New VisualBasicParseOptions().WithKind(SourceCodeKind.Interactive))
 #Enable Warning BC40000 ' Type or member is obsolete
 
             CompilationUtils.AssertTheseDiagnostics(compilation, <errors>
@@ -451,7 +451,7 @@ BC31030: Conditional compilation constant '2' is not valid: Identifier expected.
 
         <Fact>
         Public Sub TestEventQueueCompletionForEmptyCompilation()
-            Dim compilation = CreateCompilationWithMscorlib45(source:=Nothing).WithEventQueue(New AsyncQueue(Of CompilationEvent)())
+            Dim compilation = CreateCompilationWithMscorlib461(source:=Nothing).WithEventQueue(New AsyncQueue(Of CompilationEvent)())
 
             ' Force complete compilation event queue
             Dim unused = compilation.GetDiagnostics()
@@ -672,6 +672,61 @@ End Class"
                 End If
 
                 reportDiagnostic(CodeAnalysis.Diagnostic.Create(Descriptor, location, containingSymbol.Name))
+            End Sub
+        End Class
+
+        <Fact, WorkItem("https://github.com/dotnet/roslyn/issues/68654")>
+        Public Async Function TestAnalyzerLocalDiagnosticsWhenReportedOnEnumFieldSymbol() As Task
+            Dim source = "
+Public Class Outer
+    Public Enum E1
+        A1 = 0
+    End Enum
+End Class
+
+Public Enum E2
+    A2 = 0
+End Enum"
+
+            Dim compilation = CreateCompilation(source)
+            compilation.VerifyDiagnostics()
+
+            Dim tree = compilation.SyntaxTrees(0)
+            Dim analyzer = New EnumTypeFieldSymbolAnalyzer()
+            Dim compilationWithAnalyzers = compilation.WithAnalyzers(ImmutableArray.Create(Of DiagnosticAnalyzer)(analyzer), AnalyzerOptions.Empty)
+            Dim result = Await compilationWithAnalyzers.GetAnalysisResultAsync(CancellationToken.None)
+
+            Dim localSemanticDiagnostics = result.SemanticDiagnostics(tree)(analyzer)
+            localSemanticDiagnostics.Verify(
+                Diagnostic("ID0001", "A1 = 0").WithLocation(4, 9),
+                Diagnostic("ID0001", "A2 = 0").WithLocation(9, 5))
+
+            Assert.Empty(result.CompilationDiagnostics)
+        End Function
+
+        <DiagnosticAnalyzer(LanguageNames.VisualBasic)>
+        Private Class EnumTypeFieldSymbolAnalyzer
+            Inherits DiagnosticAnalyzer
+
+            Public Shared ReadOnly Descriptor As New DiagnosticDescriptor("ID0001", "Title", "Message", "Category", defaultSeverity:=DiagnosticSeverity.Warning, isEnabledByDefault:=True)
+
+            Public Overrides ReadOnly Property SupportedDiagnostics As ImmutableArray(Of DiagnosticDescriptor)
+                Get
+                    Return ImmutableArray.Create(Descriptor)
+                End Get
+            End Property
+
+            Public Overrides Sub Initialize(context As AnalysisContext)
+                context.RegisterSymbolAction(Sub(symbolContext As SymbolAnalysisContext)
+                                                 Dim namedType = DirectCast(symbolContext.Symbol, INamedTypeSymbol)
+                                                 For Each field In namedType.GetMembers().OfType(Of IFieldSymbol)
+                                                     If Not field.IsImplicitlyDeclared Then
+                                                         Dim diag = CodeAnalysis.Diagnostic.Create(Descriptor, field.DeclaringSyntaxReferences(0).GetLocation())
+                                                         symbolContext.ReportDiagnostic(diag)
+                                                     End If
+                                                 Next
+                                             End Sub,
+                    SymbolKind.NamedType)
             End Sub
         End Class
     End Class

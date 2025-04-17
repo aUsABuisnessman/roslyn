@@ -9236,38 +9236,34 @@ T ? f(from x
 a < b,
 void goo() { }
 ",
-                // (2,6): error CS1002: ; expected
-                // a < b,
-                Diagnostic(ErrorCode.ERR_SemicolonExpected, ",").WithLocation(2, 6),
-                // (2,6): error CS7017: Member definition, statement, or end-of-file expected
-                // a < b,
-                Diagnostic(ErrorCode.ERR_GlobalDefinitionOrStatementExpected, ",").WithLocation(2, 6));
+                // (3,1): error CS1547: Keyword 'void' cannot be used in this context
+                // void goo() { }
+                Diagnostic(ErrorCode.ERR_NoVoidHere, "void").WithLocation(3, 1),
+                // (3,6): error CS1003: Syntax error, '>' expected
+                // void goo() { }
+                Diagnostic(ErrorCode.ERR_SyntaxError, "goo").WithArguments(">").WithLocation(3, 6));
+
             N(SyntaxKind.CompilationUnit);
             {
-                N(SyntaxKind.GlobalStatement);
+                N(SyntaxKind.MethodDeclaration);
                 {
-                    N(SyntaxKind.ExpressionStatement);
+                    N(SyntaxKind.GenericName);
                     {
-                        N(SyntaxKind.LessThanExpression);
+                        N(SyntaxKind.IdentifierToken, "a");
+                        N(SyntaxKind.TypeArgumentList);
                         {
-                            N(SyntaxKind.IdentifierName);
-                            {
-                                N(SyntaxKind.IdentifierToken, "a");
-                            }
                             N(SyntaxKind.LessThanToken);
                             N(SyntaxKind.IdentifierName);
                             {
                                 N(SyntaxKind.IdentifierToken, "b");
                             }
+                            N(SyntaxKind.CommaToken);
+                            N(SyntaxKind.PredefinedType);
+                            {
+                                N(SyntaxKind.VoidKeyword);
+                            }
+                            M(SyntaxKind.GreaterThanToken);
                         }
-                        M(SyntaxKind.SemicolonToken);
-                    }
-                }
-                N(SyntaxKind.MethodDeclaration);
-                {
-                    N(SyntaxKind.PredefinedType);
-                    {
-                        N(SyntaxKind.VoidKeyword);
                     }
                     N(SyntaxKind.IdentifierToken, "goo");
                     N(SyntaxKind.ParameterList);
@@ -9720,8 +9716,7 @@ Console.WriteLine(""Hi!"");", TestOptions.Script);
         [Fact]
         public void ShebangNotInScript()
         {
-            ParseAndValidate("#!/usr/bin/env csi", TestOptions.Regular,
-                new ErrorDescription { Code = (int)ErrorCode.ERR_PPDirectiveExpected, Line = 1, Column = 1 });
+            ParseAndValidate("#!/usr/bin/env csi", TestOptions.Regular);
         }
 
         private void TestShebang(SyntaxTrivia trivia, string expectedSkippedText)
@@ -9744,6 +9739,10 @@ Console.WriteLine(""Hi!"");", TestOptions.Script);
             var skippedText = endOfDirective.LeadingTrivia.Single();
             Assert.Equal(SyntaxKind.PreprocessingMessageTrivia, skippedText.Kind());
             Assert.Equal(expectedSkippedText, skippedText.ToString());
+            var content = shebang.Content;
+            Assert.False(content.HasLeadingTrivia || content.HasTrailingTrivia);
+            Assert.Equal(SyntaxKind.StringLiteralToken, content.Kind());
+            Assert.Equal(expectedSkippedText, content.ToString());
         }
 
         #endregion

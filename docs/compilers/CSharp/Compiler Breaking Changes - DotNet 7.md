@@ -1,4 +1,6 @@
-# This document lists known breaking changes in Roslyn after .NET 6 all the way to .NET 7.
+# Breaking changes in Roslyn after .NET 6.0.100 through .NET 7.0.100
+
+This document lists known breaking changes in Roslyn after .NET 6 general release (.NET SDK version 6.0.100) through .NET 7 general release (.NET SDK version 7.0.100).
 
 ## All locals of restricted types are disallowed in async methods 
 
@@ -30,9 +32,10 @@ See https://github.com/dotnet/roslyn/pull/66264
 In earlier SDKs, the compiler would occasionally allow locations where pointers could be referenced, without explicitly marking that location as unsafe. 
 Now, the `unsafe` modifier must be present.  
 For example `using Alias = List<int*[]>;` should be changed to `using unsafe Alias = List<int*[]>;` to be legal.  
-And a usage such as `void Method(Alias a) ...` should be changed to `unsafe void Method(Alias a) ...`.  
+A usage such as `void Method(Alias a) ...` should be changed to `unsafe void Method(Alias a) ...`.  
 
-This rule only takes effect if the language version is chosen as C# 12 or higher.  Language versions lower than this get the previous behavior that allowed this code.
+The rule is unconditional, except for `using` alias declarations (which didn't allow an `unsafe` modifier before C# 12).  
+So for `using` declarations, the rule only takes effect if the language version is chosen as C# 12 or higher.
 
 ## System.TypedReference considered managed
 
@@ -161,7 +164,7 @@ DoAction(action, 1); // error CS1503: Argument 1: cannot convert from '<anonymou
 void DoAction(System.Action<int, int[]> a, int p) => a(p, new[] { p });
 ```
 
-You can learn more about this change in the associated [proposal](https://github.com/dotnet/csharplang/blob/main/proposals/lambda-method-group-defaults.md#breaking-change).
+You can learn more about this change in the associated [proposal](https://github.com/dotnet/csharplang/blob/main/proposals/csharp-12.0/lambda-method-group-defaults.md#breaking-change).
 
 ## For the purpose of definite assignment analysis, invocations of async local functions are no longer treated as being awaited
 

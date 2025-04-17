@@ -36,7 +36,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic.Symbols
             End Get
         End Property
 
-        Friend Overrides Sub AddSynthesizedAttributes(moduleBuilder As PEModuleBuilder, ByRef attributes As ArrayBuilder(Of SynthesizedAttributeData))
+        Friend Overrides Sub AddSynthesizedAttributes(moduleBuilder As PEModuleBuilder, ByRef attributes As ArrayBuilder(Of VisualBasicAttributeData))
             MyBase.AddSynthesizedAttributes(moduleBuilder, attributes)
 
             ' Note, Dev11 emits DebuggerNonUserCodeAttribute, but we are using DebuggerHiddenAttribute instead.
@@ -101,7 +101,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic.Symbols
                 Dim typeBinder As Binder = BinderBuilder.CreateBinderForType(containingType.ContainingSourceModule, PropertyOrEvent.AttributeSyntax.SyntaxTree, containingType)
                 methodBodyBinder = BinderBuilder.CreateBinderForMethodBody(Me, accessorBlock, typeBinder)
 
-                Dim bindingDiagnostics = New BindingDiagnosticBag(DiagnosticBag.GetInstance(), diagnostics.DependenciesBag)
+                Dim bindingDiagnostics = BindingDiagnosticBag.GetInstance(withDiagnostics:=True, withDependencies:=diagnostics.AccumulatesDependencies)
 #If DEBUG Then
                 ' Enable DEBUG check for ordering of simple name binding.
                 methodBodyBinder.EnableSimpleNameBindingOrderChecks(True)
@@ -117,7 +117,8 @@ Namespace Microsoft.CodeAnalysis.VisualBasic.Symbols
                     diagnostics.Add(diag.WithLocation(diagnosticLocation))
                 Next
 
-                bindingDiagnostics.DiagnosticBag.Free()
+                diagnostics.AddDependencies(bindingDiagnostics)
+                bindingDiagnostics.Free()
 
                 If boundStatement.Kind = BoundKind.Block Then
                     Return DirectCast(boundStatement, BoundBlock)

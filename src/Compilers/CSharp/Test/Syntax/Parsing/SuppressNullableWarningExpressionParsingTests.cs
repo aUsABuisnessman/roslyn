@@ -442,15 +442,12 @@ namespace Microsoft.CodeAnalysis.CSharp.UnitTests.Parsing
         public void ConditionalAccess_05()
         {
             UsingNode("x?.y?![0].ToString()", options: null,
-                // (1,7): error CS1525: Invalid expression term '['
-                // x?.y?![0].ToString()
-                Diagnostic(ErrorCode.ERR_InvalidExprTerm, "[", isSuppressed: false).WithArguments("[").WithLocation(1, 7),
                 // (1,21): error CS1003: Syntax error, ':' expected
                 // x?.y?![0].ToString()
-                Diagnostic(ErrorCode.ERR_SyntaxError, "", isSuppressed: false).WithArguments(":").WithLocation(1, 21),
+                Diagnostic(ErrorCode.ERR_SyntaxError, "").WithArguments(":").WithLocation(1, 21),
                 // (1,21): error CS1733: Expected expression
                 // x?.y?![0].ToString()
-                Diagnostic(ErrorCode.ERR_ExpressionExpected, "", isSuppressed: false).WithLocation(1, 21));
+                Diagnostic(ErrorCode.ERR_ExpressionExpected, "").WithLocation(1, 21));
 
             N(SyntaxKind.ConditionalExpression);
             {
@@ -478,24 +475,17 @@ namespace Microsoft.CodeAnalysis.CSharp.UnitTests.Parsing
                     {
                         N(SyntaxKind.SimpleMemberAccessExpression);
                         {
-                            N(SyntaxKind.ElementAccessExpression);
+                            N(SyntaxKind.CollectionExpression);
                             {
-                                M(SyntaxKind.IdentifierName);
+                                N(SyntaxKind.OpenBracketToken);
+                                N(SyntaxKind.ExpressionElement);
                                 {
-                                    M(SyntaxKind.IdentifierToken);
-                                }
-                                N(SyntaxKind.BracketedArgumentList);
-                                {
-                                    N(SyntaxKind.OpenBracketToken);
-                                    N(SyntaxKind.Argument);
+                                    N(SyntaxKind.NumericLiteralExpression);
                                     {
-                                        N(SyntaxKind.NumericLiteralExpression);
-                                        {
-                                            N(SyntaxKind.NumericLiteralToken, "0");
-                                        }
+                                        N(SyntaxKind.NumericLiteralToken, "0");
                                     }
-                                    N(SyntaxKind.CloseBracketToken);
                                 }
+                                N(SyntaxKind.CloseBracketToken);
                             }
                             N(SyntaxKind.DotToken);
                             N(SyntaxKind.IdentifierName);
@@ -606,15 +596,15 @@ namespace Microsoft.CodeAnalysis.CSharp.UnitTests.Parsing
 
             N(SyntaxKind.ConditionalExpression);
             {
-                N(SyntaxKind.ConditionalAccessExpression);
+                N(SyntaxKind.SuppressNullableWarningExpression);
                 {
-                    N(SyntaxKind.IdentifierName);
+                    N(SyntaxKind.ConditionalAccessExpression);
                     {
-                        N(SyntaxKind.IdentifierToken, "x");
-                    }
-                    N(SyntaxKind.QuestionToken);
-                    N(SyntaxKind.SuppressNullableWarningExpression);
-                    {
+                        N(SyntaxKind.IdentifierName);
+                        {
+                            N(SyntaxKind.IdentifierToken, "x");
+                        }
+                        N(SyntaxKind.QuestionToken);
                         N(SyntaxKind.MemberBindingExpression);
                         {
                             N(SyntaxKind.DotToken);
@@ -623,8 +613,8 @@ namespace Microsoft.CodeAnalysis.CSharp.UnitTests.Parsing
                                 N(SyntaxKind.IdentifierToken, "y");
                             }
                         }
-                        N(SyntaxKind.ExclamationToken);
                     }
+                    N(SyntaxKind.ExclamationToken);
                 }
                 N(SyntaxKind.QuestionToken);
                 N(SyntaxKind.LogicalNotExpression);
@@ -656,6 +646,46 @@ namespace Microsoft.CodeAnalysis.CSharp.UnitTests.Parsing
                 {
                     M(SyntaxKind.IdentifierToken);
                 }
+            }
+            EOF();
+        }
+
+        [Fact, WorkItem(47712, "https://github.com/dotnet/roslyn/pull/47712")]
+        public void ConditionalAccess_09()
+        {
+            UsingNode("x?.y?.z!");
+
+            N(SyntaxKind.SuppressNullableWarningExpression);
+            {
+                N(SyntaxKind.ConditionalAccessExpression);
+                {
+                    N(SyntaxKind.IdentifierName);
+                    {
+                        N(SyntaxKind.IdentifierToken, "x");
+                    }
+                    N(SyntaxKind.QuestionToken);
+                    N(SyntaxKind.ConditionalAccessExpression);
+                    {
+                        N(SyntaxKind.MemberBindingExpression);
+                        {
+                            N(SyntaxKind.DotToken);
+                            N(SyntaxKind.IdentifierName);
+                            {
+                                N(SyntaxKind.IdentifierToken, "y");
+                            }
+                        }
+                        N(SyntaxKind.QuestionToken);
+                        N(SyntaxKind.MemberBindingExpression);
+                        {
+                            N(SyntaxKind.DotToken);
+                            N(SyntaxKind.IdentifierName);
+                            {
+                                N(SyntaxKind.IdentifierToken, "z");
+                            }
+                        }
+                    }
+                }
+                N(SyntaxKind.ExclamationToken);
             }
             EOF();
         }

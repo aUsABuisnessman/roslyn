@@ -26,7 +26,7 @@ namespace Microsoft.CodeAnalysis.CSharp
 
                     var (data, parts) = node.Operand switch
                     {
-                        BoundInterpolatedString { InterpolationData: { } d, Parts: { } p } => (d, p),
+                        BoundInterpolatedString { InterpolationData: { BuilderType: not null } d, Parts: { } p } => (d, p),
                         BoundBinaryOperator { InterpolatedStringHandlerData: { } d } binary => (d, CollectBinaryOperatorInterpolatedStringParts(binary)),
                         _ => throw ExceptionUtilities.UnexpectedValue(node.Operand.Kind)
                     };
@@ -57,6 +57,13 @@ namespace Microsoft.CodeAnalysis.CSharp
                                                  BoundDelegateCreationExpression { WasTargetTyped: true });
 
                     return objectCreation;
+
+                case ConversionKind.ImplicitNullable when node.Conversion.UnderlyingConversions[0].Kind is ConversionKind.CollectionExpression:
+                    var rewrittenCollection = RewriteCollectionExpressionConversion(node.Conversion.UnderlyingConversions[0], (BoundCollectionExpression)node.Operand);
+                    return ConvertToNullable(node.Syntax, node.Type, rewrittenCollection);
+
+                case ConversionKind.CollectionExpression:
+                    return RewriteCollectionExpressionConversion(node.Conversion, (BoundCollectionExpression)node.Operand);
             }
 
             var rewrittenType = VisitType(node.Type);
@@ -99,7 +106,7 @@ namespace Microsoft.CodeAnalysis.CSharp
                                             BadExpression(node.Syntax, byteArray, ImmutableArray<BoundExpression>.Empty) :
                                             MakeUnderlyingArrayForUtf8Span(node.Syntax, byteArray, bytes, out length);
 
-            if (!TryGetWellKnownTypeMember<MethodSymbol>(node.Syntax, WellKnownMember.System_ReadOnlySpan_T__ctor_Array_Start_Length, out MethodSymbol ctor))
+            if (!TryGetWellKnownTypeMember<MethodSymbol>(node.Syntax, WellKnownMember.System_ReadOnlySpan_T__ctor_Array_Start_Length, out MethodSymbol? ctor))
             {
                 result = BadExpression(node.Syntax, node.Type, ImmutableArray<BoundExpression>.Empty);
             }
@@ -115,18 +122,16 @@ namespace Microsoft.CodeAnalysis.CSharp
 
         private byte[]? GetUtf8ByteRepresentation(BoundUtf8String node)
         {
-            var utf8 = new System.Text.UTF8Encoding(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
-
-            try
+            if (node.Value.TryGetUtf8ByteRepresentation(out byte[]? result, out string? error))
             {
-                return utf8.GetBytes(node.Value);
+                return result;
             }
-            catch (Exception ex)
+            else
             {
                 _diagnostics.Add(
                     ErrorCode.ERR_CannotBeConvertedToUtf8,
                     node.Syntax.Location,
-                    ex.Message);
+                    error);
 
                 return null;
             }
@@ -299,6 +304,8 @@ namespace Microsoft.CodeAnalysis.CSharp
         {
             Debug.Assert(oldNodeOpt == null || oldNodeOpt.Syntax == syntax);
             Debug.Assert(rewrittenType is { });
+            Debug.Assert(_factory.ModuleBuilderOpt is { });
+            Debug.Assert(_diagnostics.DiagnosticBag is { });
 
             if (_inExpressionLambda && !conversion.IsUserDefined)
             {
@@ -565,6 +572,7 @@ namespace Microsoft.CodeAnalysis.CSharp
                         var boundDelegateCreation = new BoundDelegateCreationExpression(syntax, argument: receiver, methodOpt: method,
                                                                                         isExtensionMethod: oldNodeOpt.IsExtensionMethod, wasTargetTyped: false, type: rewrittenType);
 
+                        EnsureParamCollectionAttributeExists(rewrittenOperand.Syntax, rewrittenType);
                         Debug.Assert(_factory.TopLevelMethod is { });
 
                         if (_factory.Compilation.LanguageVersion >= MessageID.IDS_FeatureCacheStaticMethodGroupConversion.RequiredVersion()
@@ -579,6 +587,126 @@ namespace Microsoft.CodeAnalysis.CSharp
                         {
                             return boundDelegateCreation;
                         }
+                    }
+
+                case ConversionKind.InlineArray:
+                    {
+                        Debug.Assert(rewrittenOperand.Type is not null);
+
+                        NamedTypeSymbol spanType = (NamedTypeSymbol)rewrittenType;
+                        MethodSymbol createSpan;
+
+                        if (spanType.OriginalDefinition.Equals(_compilation.GetWellKnownType(WellKnownType.System_ReadOnlySpan_T), TypeCompareKind.AllIgnoreOptions))
+                        {
+                            createSpan = _factory.ModuleBuilderOpt.EnsureInlineArrayAsReadOnlySpanExists(syntax, spanType.OriginalDefinition, _factory.SpecialType(SpecialType.System_Int32), _diagnostics.DiagnosticBag);
+                        }
+                        else
+                        {
+                            Debug.Assert(spanType.OriginalDefinition.Equals(_compilation.GetWellKnownType(WellKnownType.System_Span_T), TypeCompareKind.AllIgnoreOptions));
+                            createSpan = _factory.ModuleBuilderOpt.EnsureInlineArrayAsSpanExists(syntax, spanType.OriginalDefinition, _factory.SpecialType(SpecialType.System_Int32), _diagnostics.DiagnosticBag);
+                        }
+
+                        createSpan = createSpan.Construct(rewrittenOperand.Type, spanType.TypeArgumentsWithAnnotationsNoUseSiteDiagnostics.Single().Type);
+                        _ = rewrittenOperand.Type.HasInlineArrayAttribute(out int length);
+
+                        return _factory.Call(null, createSpan, rewrittenOperand, _factory.Literal(length), useStrictArgumentRefKinds: true);
+                    }
+
+                case ConversionKind.ImplicitSpan:
+                case ConversionKind.ExplicitSpan:
+                    {
+                        var sourceType = rewrittenOperand.Type;
+                        var destinationType = (NamedTypeSymbol)rewrittenType;
+
+                        Debug.Assert(sourceType is not null);
+
+                        // array to Span/ReadOnlySpan (implicit or explicit)
+                        if (sourceType is ArrayTypeSymbol)
+                        {
+                            if (Binder.TryFindImplicitOperatorFromArray(destinationType.OriginalDefinition) is not { } methodDefinition)
+                            {
+                                throw ExceptionUtilities.Unreachable();
+                            }
+
+                            MethodSymbol method = methodDefinition.AsMember(destinationType);
+
+                            rewrittenOperand = _factory.Convert(method.ParameterTypesWithAnnotations[0].Type, rewrittenOperand);
+
+                            if (!_inExpressionLambda && _compilation.IsReadOnlySpanType(destinationType))
+                            {
+                                return new BoundReadOnlySpanFromArray(syntax, rewrittenOperand, method, destinationType) { WasCompilerGenerated = true };
+                            }
+
+                            return _factory.Call(null, method, rewrittenOperand);
+                        }
+
+                        // Span to ReadOnlySpan (implicit only)
+                        if (sourceType.IsSpan())
+                        {
+                            Debug.Assert(destinationType.IsReadOnlySpan());
+                            Debug.Assert(conversion.Kind is ConversionKind.ImplicitSpan);
+
+                            if (Binder.TryFindImplicitOperatorFromSpan(sourceType.OriginalDefinition, destinationType.OriginalDefinition) is not { } implicitOperatorDefinition)
+                            {
+                                throw ExceptionUtilities.Unreachable();
+                            }
+
+                            MethodSymbol implicitOperator = implicitOperatorDefinition.AsMember((NamedTypeSymbol)sourceType);
+
+                            rewrittenOperand = _factory.Convert(implicitOperator.ParameterTypesWithAnnotations[0].Type, rewrittenOperand);
+                            rewrittenOperand = _factory.Call(null, implicitOperator, rewrittenOperand);
+
+                            if (Binder.NeedsSpanCastUp(sourceType, destinationType))
+                            {
+                                if (Binder.TryFindCastUpMethod(implicitOperator.ReturnType.OriginalDefinition, destinationType.OriginalDefinition) is not { } castUpMethodDefinition)
+                                {
+                                    throw ExceptionUtilities.Unreachable();
+                                }
+
+                                TypeWithAnnotations sourceElementType = ((NamedTypeSymbol)sourceType).TypeArgumentsWithAnnotationsNoUseSiteDiagnostics[0];
+                                MethodSymbol castUpMethod = castUpMethodDefinition.AsMember(destinationType).Construct([sourceElementType]);
+
+                                return _factory.Call(null, castUpMethod, rewrittenOperand);
+                            }
+
+                            return rewrittenOperand;
+                        }
+
+                        // ReadOnlySpan to ReadOnlySpan (implicit only)
+                        if (sourceType.IsReadOnlySpan())
+                        {
+                            Debug.Assert(destinationType.IsReadOnlySpan());
+                            Debug.Assert(conversion.Kind is ConversionKind.ImplicitSpan);
+                            Debug.Assert(Binder.NeedsSpanCastUp(sourceType, destinationType));
+
+                            if (Binder.TryFindCastUpMethod(sourceType.OriginalDefinition, destinationType.OriginalDefinition) is not { } methodDefinition)
+                            {
+                                throw ExceptionUtilities.Unreachable();
+                            }
+
+                            TypeWithAnnotations sourceElementType = ((NamedTypeSymbol)sourceType).TypeArgumentsWithAnnotationsNoUseSiteDiagnostics[0];
+                            MethodSymbol method = methodDefinition.AsMember(destinationType).Construct([sourceElementType]);
+
+                            rewrittenOperand = _factory.Convert(method.ParameterTypesWithAnnotations[0].Type, rewrittenOperand);
+                            return _factory.Call(null, method, rewrittenOperand);
+                        }
+
+                        // string to ReadOnlySpan (implicit only)
+                        if (sourceType.IsStringType())
+                        {
+                            Debug.Assert(destinationType.IsReadOnlySpan());
+                            Debug.Assert(conversion.Kind is ConversionKind.ImplicitSpan);
+
+                            if (Binder.TryFindAsSpanCharMethod(_compilation, destinationType) is not { } method)
+                            {
+                                throw ExceptionUtilities.Unreachable();
+                            }
+
+                            rewrittenOperand = _factory.Convert(method.ParameterTypesWithAnnotations[0].Type, rewrittenOperand);
+                            return _factory.Call(null, method, rewrittenOperand);
+                        }
+
+                        throw ExceptionUtilities.Unreachable();
                     }
 
                 default:
@@ -605,6 +733,18 @@ namespace Microsoft.CodeAnalysis.CSharp
                     conversionGroupOpt: null, // BoundConversion.ConversionGroup is not used in lowered tree
                     constantValueOpt: constantValueOpt,
                     type: rewrittenType);
+        }
+
+        private void EnsureParamCollectionAttributeExists(SyntaxNode node, TypeSymbol delegateType)
+        {
+            Debug.Assert(_factory.ModuleBuilderOpt is { });
+
+            if (delegateType.IsAnonymousType && delegateType.ContainingModule == _compilation.SourceModule &&
+                delegateType.DelegateInvokeMethod() is MethodSymbol delegateInvoke &&
+                delegateInvoke.Parameters.Any(static (p) => p.IsParamsCollection))
+            {
+                _factory.ModuleBuilderOpt.EnsureParamCollectionAttributeExists(_diagnostics, node.Location);
+            }
         }
 
         // Determine if the conversion can actually overflow at runtime.  If not, no need to generate a checked instruction.
@@ -936,7 +1076,7 @@ namespace Microsoft.CodeAnalysis.CSharp
                     // (If the source is known to be possibly null then we need to keep the call to get Value
                     // in place so that it throws at runtime.)
                     MethodSymbol get_Value = UnsafeGetNullableMethod(syntax, rewrittenOperandType, SpecialMember.System_Nullable_T_get_Value);
-                    value = BoundCall.Synthesized(syntax, rewrittenOperand, get_Value);
+                    value = BoundCall.Synthesized(syntax, rewrittenOperand, initialBindingReceiverIsSubjectToCloning: ThreeState.Unknown, get_Value);
                 }
 
                 conversion.AssertUnderlyingConversionsChecked();
@@ -1036,7 +1176,7 @@ namespace Microsoft.CodeAnalysis.CSharp
                 UnsafeGetNullableMethod(syntax, type, SpecialMember.System_Nullable_T__ctor),
                 MakeConversionNode(
                     syntax,
-                    BoundCall.Synthesized(syntax, boundTemp, getValueOrDefault),
+                    BoundCall.Synthesized(syntax, boundTemp, initialBindingReceiverIsSubjectToCloning: ThreeState.Unknown, getValueOrDefault),
                     conversion.UnderlyingConversions[0],
                     type.GetNullableUnderlyingType(),
                     @checked));
@@ -1079,7 +1219,12 @@ namespace Microsoft.CodeAnalysis.CSharp
             {
                 Debug.Assert(conversion.Method is { });
                 var constrainedToTypeOpt = conversion.ConstrainedToTypeOpt;
-                return MakeLiftedUserDefinedConversionConsequence(BoundCall.Synthesized(syntax, receiverOpt: constrainedToTypeOpt is null ? null : new BoundTypeExpression(syntax, aliasOpt: null, constrainedToTypeOpt), conversion.Method, nonNullValue), type);
+                return MakeLiftedUserDefinedConversionConsequence(BoundCall.Synthesized(
+                    syntax,
+                    receiverOpt: constrainedToTypeOpt is null ? null : new BoundTypeExpression(syntax, aliasOpt: null, constrainedToTypeOpt),
+                    initialBindingReceiverIsSubjectToCloning: ThreeState.Unknown,
+                    conversion.Method,
+                    nonNullValue), type);
             }
 
             return DistributeLiftedConversionIntoLiftedOperand(syntax, operand, conversion, false, type);
@@ -1219,7 +1364,12 @@ namespace Microsoft.CodeAnalysis.CSharp
             }
 
             var constrainedToTypeOpt = conversion.ConstrainedToTypeOpt;
-            BoundExpression result = BoundCall.Synthesized(syntax, receiverOpt: constrainedToTypeOpt is null ? null : new BoundTypeExpression(syntax, aliasOpt: null, constrainedToTypeOpt), conversion.Method, rewrittenOperand);
+            BoundExpression result = BoundCall.Synthesized(
+                syntax,
+                receiverOpt: constrainedToTypeOpt is null ? null : new BoundTypeExpression(syntax, aliasOpt: null, constrainedToTypeOpt),
+                initialBindingReceiverIsSubjectToCloning: ThreeState.Unknown,
+                conversion.Method,
+                rewrittenOperand);
             Debug.Assert(TypeSymbol.Equals(result.Type, rewrittenType, TypeCompareKind.ConsiderEverything2));
             return result;
         }
@@ -1286,12 +1436,17 @@ namespace Microsoft.CodeAnalysis.CSharp
             BoundExpression condition = _factory.MakeNullableHasValue(syntax, boundTemp);
 
             // temp.GetValueOrDefault()
-            BoundCall callGetValueOrDefault = BoundCall.Synthesized(syntax, boundTemp, getValueOrDefault);
+            BoundCall callGetValueOrDefault = BoundCall.Synthesized(syntax, boundTemp, initialBindingReceiverIsSubjectToCloning: ThreeState.Unknown, getValueOrDefault);
 
             // op_Whatever(temp.GetValueOrDefault())
             Debug.Assert(conversion.Method is { });
             var constrainedToTypeOpt = conversion.ConstrainedToTypeOpt;
-            BoundCall userDefinedCall = BoundCall.Synthesized(syntax, receiverOpt: constrainedToTypeOpt is null ? null : new BoundTypeExpression(syntax, aliasOpt: null, constrainedToTypeOpt), conversion.Method, callGetValueOrDefault);
+            BoundCall userDefinedCall = BoundCall.Synthesized(
+                syntax,
+                receiverOpt: constrainedToTypeOpt is null ? null : new BoundTypeExpression(syntax, aliasOpt: null, constrainedToTypeOpt),
+                initialBindingReceiverIsSubjectToCloning: ThreeState.Unknown,
+                conversion.Method,
+                callGetValueOrDefault);
 
             // new R?(op_Whatever(temp.GetValueOrDefault())
             BoundExpression consequence = MakeLiftedUserDefinedConversionConsequence(userDefinedCall, rewrittenType);
@@ -1361,9 +1516,6 @@ namespace Microsoft.CodeAnalysis.CSharp
 
             rewrittenOperand = MakeConversionNode(rewrittenOperand, method.GetParameterType(0), @checked);
 
-            var returnType = method.ReturnType;
-            Debug.Assert((object)returnType != null);
-
             if (_inExpressionLambda)
             {
                 return BoundConversion.Synthesized(syntax, rewrittenOperand, conversion, @checked, explicitCastInCode: explicitCastInCode, conversionGroupOpt: null, constantValueOpt, rewrittenType);
@@ -1373,8 +1525,7 @@ namespace Microsoft.CodeAnalysis.CSharp
                     syntax: syntax,
                     rewrittenReceiver: null,
                     method: method,
-                    rewrittenArguments: ImmutableArray.Create(rewrittenOperand),
-                    type: returnType);
+                    rewrittenArguments: ImmutableArray.Create(rewrittenOperand));
 
             return MakeConversionNode(rewrittenCall, rewrittenType, @checked, markAsChecked: true);
         }
@@ -1589,7 +1740,7 @@ namespace Microsoft.CodeAnalysis.CSharp
             else
             {
                 Debug.Assert(TypeSymbol.Equals(method.ReturnType, toType, TypeCompareKind.ConsiderEverything2));
-                return BoundCall.Synthesized(syntax, receiverOpt: null, method, operand);
+                return BoundCall.Synthesized(syntax, receiverOpt: null, initialBindingReceiverIsSubjectToCloning: ThreeState.Unknown, method, operand);
             }
         }
 

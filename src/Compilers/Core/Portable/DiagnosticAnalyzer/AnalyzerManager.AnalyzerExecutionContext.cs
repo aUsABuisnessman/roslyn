@@ -10,6 +10,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.CodeAnalysis.Collections;
+using Microsoft.CodeAnalysis.Text;
 using Roslyn.Utilities;
 
 namespace Microsoft.CodeAnalysis.Diagnostics
@@ -81,16 +82,16 @@ namespace Microsoft.CodeAnalysis.Diagnostics
                         return _lazySessionScopeTask;
                     }
 
-                    task = getSessionAnalysisScopeTaskSlow(this, analyzerExecutor, cancellationToken);
+                    task = getSessionAnalysisScopeTaskSlowAsync(this, analyzerExecutor, cancellationToken);
                     _lazySessionScopeTask = task;
                     return task;
 
-                    static Task<HostSessionStartAnalysisScope> getSessionAnalysisScopeTaskSlow(AnalyzerExecutionContext context, AnalyzerExecutor executor, CancellationToken cancellationToken)
+                    static Task<HostSessionStartAnalysisScope> getSessionAnalysisScopeTaskSlowAsync(AnalyzerExecutionContext context, AnalyzerExecutor executor, CancellationToken cancellationToken)
                     {
                         return Task.Run(() =>
                         {
-                            var sessionScope = new HostSessionStartAnalysisScope();
-                            executor.ExecuteInitializeMethod(context._analyzer, sessionScope, cancellationToken);
+                            var sessionScope = new HostSessionStartAnalysisScope(context._analyzer);
+                            executor.ExecuteInitializeMethod(sessionScope, executor.SeverityFilter, cancellationToken);
                             return sessionScope;
                         }, cancellationToken);
                     }
@@ -116,8 +117,9 @@ namespace Microsoft.CodeAnalysis.Diagnostics
                     {
                         _lazyCompilationScopeTask = Task.Run(() =>
                         {
+                            Debug.Assert(sessionScope.Analyzer == _analyzer);
                             var compilationAnalysisScope = new HostCompilationStartAnalysisScope(sessionScope);
-                            analyzerExecutor.ExecuteCompilationStartActions(sessionScope.GetAnalyzerActions(_analyzer).CompilationStartActions, compilationAnalysisScope, cancellationToken);
+                            analyzerExecutor.ExecuteCompilationStartActions(sessionScope.GetAnalyzerActions().CompilationStartActions, compilationAnalysisScope, cancellationToken);
                             return compilationAnalysisScope;
                         }, cancellationToken);
                     }
@@ -137,6 +139,8 @@ namespace Microsoft.CodeAnalysis.Diagnostics
             public Task<HostSymbolStartAnalysisScope> GetSymbolAnalysisScopeAsync(
                 ISymbol symbol,
                 bool isGeneratedCodeSymbol,
+                SyntaxTree? filterTree,
+                TextSpan? filterSpan,
                 ImmutableArray<SymbolStartAnalyzerAction> symbolStartActions,
                 AnalyzerExecutor analyzerExecutor,
                 CancellationToken cancellationToken)
@@ -154,10 +158,10 @@ namespace Microsoft.CodeAnalysis.Diagnostics
 
                     HostSymbolStartAnalysisScope getSymbolAnalysisScopeCore()
                     {
-                        var symbolAnalysisScope = new HostSymbolStartAnalysisScope();
-                        analyzerExecutor.ExecuteSymbolStartActions(symbol, _analyzer, symbolStartActions, symbolAnalysisScope, isGeneratedCodeSymbol, cancellationToken);
+                        var symbolAnalysisScope = new HostSymbolStartAnalysisScope(_analyzer);
+                        analyzerExecutor.ExecuteSymbolStartActions(symbol, symbolStartActions, symbolAnalysisScope, isGeneratedCodeSymbol, filterTree, filterSpan, cancellationToken);
 
-                        var symbolEndActions = symbolAnalysisScope.GetAnalyzerActions(_analyzer);
+                        var symbolEndActions = symbolAnalysisScope.GetAnalyzerActions();
                         if (symbolEndActions.SymbolEndActionsCount > 0)
                         {
                             var dependentSymbols = getDependentSymbols();
@@ -200,16 +204,13 @@ namespace Microsoft.CodeAnalysis.Diagnostics
                                 memberSet ??= new HashSet<ISymbol>();
                                 memberSet.Add(member);
 
-                                // Ensure that we include symbols for both parts of partial methods.
-                                if (member is IMethodSymbol method &&
-                                    !(method.PartialImplementationPart is null))
-                                {
-                                    memberSet.Add(method.PartialImplementationPart);
-                                }
+                                if (member is IMethodSymbol { PartialImplementationPart: { } methodImplementation })
+                                    memberSet.Add(methodImplementation);
+                                else if (member is IPropertySymbol { PartialImplementationPart: { } propertyImplementation })
+                                    memberSet.Add(propertyImplementation);
                             }
 
-                            if (member.Kind != symbol.Kind &&
-                                member is INamedTypeSymbol typeMember)
+                            if (member is INamedTypeSymbol typeMember)
                             {
                                 processMembers(typeMember.GetMembers());
                             }
@@ -221,18 +222,18 @@ namespace Microsoft.CodeAnalysis.Diagnostics
             [Conditional("DEBUG")]
             private void VerifyNewEntryForPendingMemberSymbolsMap(ISymbol symbol, HashSet<ISymbol>? dependentSymbols)
             {
-                Debug.Assert(_lazyPendingMemberSymbolsMap != null, $"{nameof(_lazyPendingMemberSymbolsMap)} was expected to be a non-null value.");
+                RoslynDebug.Assert(_lazyPendingMemberSymbolsMap != null, $"{nameof(_lazyPendingMemberSymbolsMap)} was expected to be a non-null value.");
 
                 if (_lazyPendingMemberSymbolsMap.TryGetValue(symbol, out var existingDependentSymbols))
                 {
                     if (existingDependentSymbols == null)
                     {
-                        Debug.Assert(dependentSymbols == null, $"{nameof(dependentSymbols)} was expected to be null.");
+                        RoslynDebug.Assert(dependentSymbols == null, $"{nameof(dependentSymbols)} was expected to be null.");
                     }
                     else
                     {
-                        Debug.Assert(dependentSymbols != null, $"{nameof(dependentSymbols)} was expected to be a non-null value.");
-                        Debug.Assert(existingDependentSymbols.IsSubsetOf(dependentSymbols), $"{nameof(existingDependentSymbols)} was expected to be a subset of {nameof(dependentSymbols)}");
+                        RoslynDebug.Assert(dependentSymbols != null, $"{nameof(dependentSymbols)} was expected to be a non-null value.");
+                        RoslynDebug.Assert(existingDependentSymbols.IsSubsetOf(dependentSymbols), $"{nameof(existingDependentSymbols)} was expected to be a subset of {nameof(dependentSymbols)}");
                     }
                 }
             }

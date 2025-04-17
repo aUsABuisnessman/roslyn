@@ -4,79 +4,67 @@
 
 using System;
 using System.Collections.Immutable;
-using Microsoft.CodeAnalysis.Emit;
-using Microsoft.CodeAnalysis.EditAndContinue.Contracts;
+using System.Linq;
+using Microsoft.CodeAnalysis.Contracts.EditAndContinue;
 
-namespace Microsoft.CodeAnalysis.EditAndContinue
+namespace Microsoft.CodeAnalysis.EditAndContinue;
+
+internal readonly struct SolutionUpdate(
+    ModuleUpdates moduleUpdates,
+    ImmutableArray<(Guid ModuleId, ImmutableArray<(ManagedModuleMethodId Method, NonRemappableRegion Region)>)> nonRemappableRegions,
+    ImmutableArray<ProjectBaseline> projectBaselines,
+    ImmutableArray<ProjectDiagnostics> diagnostics,
+    ImmutableArray<(DocumentId DocumentId, ImmutableArray<RudeEditDiagnostic> Diagnostics)> documentsWithRudeEdits,
+    Diagnostic? syntaxError)
 {
-    internal readonly struct SolutionUpdate
-    {
-        public readonly ModuleUpdates ModuleUpdates;
-        public readonly ImmutableArray<(Guid ModuleId, ImmutableArray<(ManagedModuleMethodId Method, NonRemappableRegion Region)>)> NonRemappableRegions;
-        public readonly ImmutableArray<ProjectBaseline> ProjectBaselines;
-        public readonly ImmutableArray<ProjectDiagnostics> Diagnostics;
-        public readonly ImmutableArray<(DocumentId DocumentId, ImmutableArray<RudeEditDiagnostic> Diagnostics)> DocumentsWithRudeEdits;
-        public readonly Diagnostic? SyntaxError;
+    public readonly ModuleUpdates ModuleUpdates = moduleUpdates;
+    public readonly ImmutableArray<(Guid ModuleId, ImmutableArray<(ManagedModuleMethodId Method, NonRemappableRegion Region)>)> NonRemappableRegions = nonRemappableRegions;
+    public readonly ImmutableArray<ProjectBaseline> ProjectBaselines = projectBaselines;
+    public readonly ImmutableArray<ProjectDiagnostics> Diagnostics = diagnostics;
+    public readonly ImmutableArray<(DocumentId DocumentId, ImmutableArray<RudeEditDiagnostic> Diagnostics)> DocumentsWithRudeEdits = documentsWithRudeEdits;
+    public readonly Diagnostic? SyntaxError = syntaxError;
 
-        public SolutionUpdate(
-            ModuleUpdates moduleUpdates,
-            ImmutableArray<(Guid ModuleId, ImmutableArray<(ManagedModuleMethodId Method, NonRemappableRegion Region)>)> nonRemappableRegions,
-            ImmutableArray<ProjectBaseline> projectBaselines,
-            ImmutableArray<ProjectDiagnostics> diagnostics,
-            ImmutableArray<(DocumentId DocumentId, ImmutableArray<RudeEditDiagnostic> Diagnostics)> documentsWithRudeEdits,
-            Diagnostic? syntaxError)
+    public static SolutionUpdate Empty(
+        ImmutableArray<ProjectDiagnostics> diagnostics,
+        ImmutableArray<(DocumentId, ImmutableArray<RudeEditDiagnostic>)> documentsWithRudeEdits,
+        Diagnostic? syntaxError,
+        ModuleUpdateStatus status)
+        => new(
+            new(status, Updates: []),
+            nonRemappableRegions: [],
+            projectBaselines: [],
+            diagnostics,
+            documentsWithRudeEdits,
+            syntaxError);
+
+    internal void Log(TraceLog log, UpdateId updateId)
+    {
+        log.Write($"Solution update {updateId} status: {ModuleUpdates.Status}");
+
+        foreach (var moduleUpdate in ModuleUpdates.Updates)
         {
-            ModuleUpdates = moduleUpdates;
-            NonRemappableRegions = nonRemappableRegions;
-            ProjectBaselines = projectBaselines;
-            Diagnostics = diagnostics;
-            DocumentsWithRudeEdits = documentsWithRudeEdits;
-            SyntaxError = syntaxError;
+            log.Write("Module update: " +
+                $"capabilities=[{string.Join(",", moduleUpdate.RequiredCapabilities)}], " +
+                $"types=[{string.Join(",", moduleUpdate.UpdatedTypes.Select(token => token.ToString("X8")))}], " +
+                $"methods=[{string.Join(",", moduleUpdate.UpdatedMethods.Select(token => token.ToString("X8")))}]");
         }
 
-        public static SolutionUpdate Blocked(
-            ImmutableArray<ProjectDiagnostics> diagnostics,
-            ImmutableArray<(DocumentId, ImmutableArray<RudeEditDiagnostic>)> documentsWithRudeEdits,
-            Diagnostic? syntaxError,
-            bool hasEmitErrors)
-            => new(
-                new(syntaxError != null || hasEmitErrors ? ModuleUpdateStatus.Blocked : ModuleUpdateStatus.RestartRequired, ImmutableArray<ManagedHotReloadUpdate>.Empty),
-                ImmutableArray<(Guid, ImmutableArray<(ManagedModuleMethodId, NonRemappableRegion)>)>.Empty,
-                ImmutableArray<ProjectBaseline>.Empty,
-                diagnostics,
-                documentsWithRudeEdits,
-                syntaxError);
-
-        internal void Log(TraceLog log, UpdateId updateId)
+        foreach (var projectDiagnostics in Diagnostics)
         {
-            log.Write("Solution update {0}.{1} status: {2}", updateId.SessionId.Ordinal, updateId.Ordinal, ModuleUpdates.Status);
-
-            foreach (var moduleUpdate in ModuleUpdates.Updates)
+            foreach (var diagnostic in projectDiagnostics.Diagnostics)
             {
-                log.Write("Module update: capabilities=[{0}], types=[{1}], methods=[{2}]",
-                    moduleUpdate.RequiredCapabilities,
-                    moduleUpdate.UpdatedTypes,
-                    moduleUpdate.UpdatedMethods);
+                if (diagnostic.Severity == DiagnosticSeverity.Error)
+                {
+                    log.Write($"Project {projectDiagnostics.ProjectId.DebugName} update error: {diagnostic}", LogMessageSeverity.Error);
+                }
             }
+        }
 
-            if (Diagnostics.Length > 0)
+        foreach (var documentWithRudeEdits in DocumentsWithRudeEdits)
+        {
+            foreach (var rudeEdit in documentWithRudeEdits.Diagnostics)
             {
-                var firstProjectDiagnostic = Diagnostics[0];
-
-                log.Write("Solution update diagnostics: #{0} [{1}: {2}, ...]",
-                    Diagnostics.Length,
-                    firstProjectDiagnostic.ProjectId,
-                    firstProjectDiagnostic.Diagnostics[0]);
-            }
-
-            if (DocumentsWithRudeEdits.Length > 0)
-            {
-                var firstDocumentWithRudeEdits = DocumentsWithRudeEdits[0];
-
-                log.Write("Solution update documents with rude edits: #{0} [{1}: {2}, ...]",
-                    DocumentsWithRudeEdits.Length,
-                    firstDocumentWithRudeEdits.DocumentId,
-                    firstDocumentWithRudeEdits.Diagnostics[0].Kind);
+                log.Write($"Document {documentWithRudeEdits.DocumentId.DebugName} rude edit: {rudeEdit.Kind} {rudeEdit.SyntaxKind}", LogMessageSeverity.Error);
             }
         }
     }

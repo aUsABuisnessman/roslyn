@@ -30,6 +30,7 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
         ReusableHoistedLocalField = '7',
         LambdaCacheField = '9',
         FixedBufferField = 'e',
+        Extension = 'E',
         FileType = 'F',
         AnonymousType = 'f',
         TransparentIdentifier = 'h',
@@ -47,7 +48,9 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
         DynamicCallSiteField = 'p',
         AsyncIteratorPromiseOfValueOrEndBackingField = 'v',
         DisposeModeField = 'w',
-        CombinedTokensField = 'x', // last
+        CombinedTokensField = 'x',
+        InlineArrayType = 'y',
+        ReadOnlyListType = 'z', // last
 
         // Deprecated - emitted by Dev12, but not by Roslyn.
         // Don't reuse the values because the debugger might encounter them when consuming old binaries.

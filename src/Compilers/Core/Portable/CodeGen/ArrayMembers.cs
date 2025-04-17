@@ -322,8 +322,6 @@ namespace Microsoft.CodeAnalysis.CodeGen
 
         public ushort GenericParameterCount => 0;
 
-        public bool IsGeneric => false;
-
         public Cci.IMethodDefinition? GetResolvedMethod(EmitContext context) => null;
 
         public ImmutableArray<Cci.IParameterTypeInformation> ExtraParameters
@@ -367,13 +365,13 @@ namespace Microsoft.CodeAnalysis.CodeGen
         public sealed override bool Equals(object? obj)
         {
             // It is not supported to rely on default equality of these Cci objects, an explicit way to compare and hash them should be used.
-            throw Roslyn.Utilities.ExceptionUtilities.Unreachable();
+            throw ExceptionUtilities.Unreachable();
         }
 
         public sealed override int GetHashCode()
         {
             // It is not supported to rely on default equality of these Cci objects, an explicit way to compare and hash them should be used.
-            throw Roslyn.Utilities.ExceptionUtilities.Unreachable();
+            throw ExceptionUtilities.Unreachable();
         }
     }
 }

@@ -25,12 +25,12 @@ namespace Microsoft.CodeAnalysis.Editor.UnitTests.Formating;
 
 [UseExportProvider]
 [Trait(Traits.Feature, Traits.Features.Formatting)]
-public class FormatterTests
+public sealed class FormatterTests
 {
     private static readonly TestComposition s_composition = FeaturesTestCompositions.Features;
 
     [ExportLanguageService(typeof(IFormattingService), language: NoCompilationConstants.LanguageName), Shared, PartNotDiscoverable]
-    internal class TestFormattingService : IFormattingService
+    internal sealed class TestFormattingService : IFormattingService
     {
         [ImportingConstructor]
         [Obsolete(MefConstruction.ImportingConstructorMessage, error: true)]
@@ -45,7 +45,7 @@ public class FormatterTests
     [Fact]
     public async Task FormatAsync_ForeignLanguageWithFormattingSupport()
     {
-        var hostServices = s_composition.AddParts(new[] { typeof(NoCompilationLanguageService), typeof(TestFormattingService) }).GetHostServices();
+        var hostServices = s_composition.AddParts([typeof(NoCompilationLanguageService), typeof(TestFormattingService)]).GetHostServices();
         using var workspace = new AdhocWorkspace(hostServices);
 
         var project = workspace.AddProject("Dummy", NoCompilationConstants.LanguageName);
@@ -59,11 +59,10 @@ public class FormatterTests
         AssertEx.Equal(@"Formatted with options: LineFormattingOptions { UseTabs = False, TabSize = 4, IndentationSize = 4, NewLine = \r\n }", formattedText.ToString());
     }
 
-    [Theory]
-    [CombinatorialData]
+    [Theory, CombinatorialData]
     public async Task FormatAsync_ForeignLanguageWithFormattingSupport_Options(bool passExplicitOptions)
     {
-        var hostServices = s_composition.AddParts(new[] { typeof(NoCompilationLanguageService), typeof(TestFormattingService) }).GetHostServices();
+        var hostServices = s_composition.AddParts([typeof(NoCompilationLanguageService), typeof(TestFormattingService)]).GetHostServices();
 
         using var workspace = new AdhocWorkspace(hostServices);
 

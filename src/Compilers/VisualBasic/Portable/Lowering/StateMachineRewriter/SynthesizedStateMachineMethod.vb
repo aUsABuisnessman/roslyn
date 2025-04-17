@@ -191,7 +191,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
             MyBase.New(stateMachineType, WellKnownMemberNames.MoveNextMethodName, interfaceMethod, syntax, declaredAccessibility, generateDebugInfo:=True, hasMethodBodyDependency:=True)
         End Sub
 
-        Friend Overrides Sub AddSynthesizedAttributes(moduleBuilder As PEModuleBuilder, ByRef attributes As ArrayBuilder(Of SynthesizedAttributeData))
+        Friend Overrides Sub AddSynthesizedAttributes(moduleBuilder As PEModuleBuilder, ByRef attributes As ArrayBuilder(Of VisualBasicAttributeData))
             MyBase.AddSynthesizedAttributes(moduleBuilder, attributes)
 
             Debug.Assert(WellKnownMembers.IsSynthesizedAttributeOptional(WellKnownMember.System_Runtime_CompilerServices_CompilerGeneratedAttribute__ctor))
@@ -208,10 +208,10 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
                 ' Inherit some attributes from the kickoff method
                 Dim kickoffMethod = StateMachineType.KickoffMethod
                 For Each attribute In kickoffMethod.GetAttributes()
-                    If attribute.IsTargetAttribute(kickoffMethod, AttributeDescription.DebuggerHiddenAttribute) OrElse
-                       attribute.IsTargetAttribute(kickoffMethod, AttributeDescription.DebuggerNonUserCodeAttribute) OrElse
-                       attribute.IsTargetAttribute(kickoffMethod, AttributeDescription.DebuggerStepperBoundaryAttribute) OrElse
-                       attribute.IsTargetAttribute(kickoffMethod, AttributeDescription.DebuggerStepThroughAttribute) Then
+                    If attribute.IsTargetAttribute(AttributeDescription.DebuggerHiddenAttribute) OrElse
+                       attribute.IsTargetAttribute(AttributeDescription.DebuggerNonUserCodeAttribute) OrElse
+                       attribute.IsTargetAttribute(AttributeDescription.DebuggerStepperBoundaryAttribute) OrElse
+                       attribute.IsTargetAttribute(AttributeDescription.DebuggerStepThroughAttribute) Then
                         If builder Is Nothing Then
                             builder = ArrayBuilder(Of VisualBasicAttributeData).GetInstance(4) ' only 4 different attributes are inherited at the moment
                         End If
@@ -247,7 +247,7 @@ Namespace Microsoft.CodeAnalysis.VisualBasic
                        hasMethodBodyDependency:=hasMethodBodyDependency, associatedProperty:=associatedProperty)
         End Sub
 
-        Friend Overrides Sub AddSynthesizedAttributes(moduleBuilder As PEModuleBuilder, ByRef attributes As ArrayBuilder(Of SynthesizedAttributeData))
+        Friend Overrides Sub AddSynthesizedAttributes(moduleBuilder As PEModuleBuilder, ByRef attributes As ArrayBuilder(Of VisualBasicAttributeData))
             MyBase.AddSynthesizedAttributes(moduleBuilder, attributes)
 
             Debug.Assert(WellKnownMembers.IsSynthesizedAttributeOptional(WellKnownMember.System_Diagnostics_DebuggerNonUserCodeAttribute__ctor))

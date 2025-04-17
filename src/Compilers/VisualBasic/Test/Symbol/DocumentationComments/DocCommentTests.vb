@@ -3,15 +3,15 @@
 ' See the LICENSE file in the project root for more information.
 
 Imports System.Collections.Immutable
+Imports System.IO
+Imports System.Text
+Imports System.Threading
+Imports Microsoft.CodeAnalysis.Test.Utilities
 Imports Microsoft.CodeAnalysis.VisualBasic.Symbols
 Imports Microsoft.CodeAnalysis.VisualBasic.Symbols.Metadata.PE
 Imports Microsoft.CodeAnalysis.VisualBasic.Syntax
-Imports Microsoft.CodeAnalysis.Test.Utilities
-Imports System.Xml.Linq
-Imports System.Text
-Imports System.IO
-Imports Roslyn.Test.Utilities
 Imports Microsoft.CodeAnalysis.VisualBasic.VisualBasicCompilation
+Imports Roslyn.Test.Utilities
 
 Namespace Microsoft.CodeAnalysis.VisualBasic.UnitTests
     Public Class DocCommentTests
@@ -41,7 +41,7 @@ End Class
             Using (new EnsureEnglishUICulture())
 
                 Dim comp = CreateCompilationWithMscorlib40(sources)
-                Dim diags = New DiagnosticBag()
+                Dim diags = BindingDiagnosticBag.GetInstance(withDiagnostics:=True, withDependencies:=False)
                 Dim badStream = New BrokenStream()
                 badStream.BreakHow = BrokenStream.BreakHowType.ThrowOnWrite
 
@@ -49,10 +49,10 @@ End Class
                     comp,
                     assemblyName:=Nothing,
                     xmlDocStream:=badStream,
-                    diagnostics:=New BindingDiagnosticBag(diags),
+                    diagnostics:=diags,
                     cancellationToken:=Nothing)
 
-                AssertTheseDiagnostics(diags.ToReadOnlyAndFree(),
+                AssertTheseDiagnostics(diags.ToReadOnlyAndFree().Diagnostics,
                                        <errors><![CDATA[
 BC37258: Error writing to XML documentation file: I/O error occurred.
                                    ]]></errors>)
@@ -12129,8 +12129,8 @@ xmlDoc)
                     If preferred Is Nothing Then
                         ensureEnglishUICulture = False
                     Else
-                        saveUICulture = Threading.Thread.CurrentThread.CurrentUICulture
-                        Threading.Thread.CurrentThread.CurrentUICulture = preferred
+                        saveUICulture = Thread.CurrentThread.CurrentUICulture
+                        Thread.CurrentThread.CurrentUICulture = preferred
                     End If
                 End If
 
@@ -12138,7 +12138,7 @@ xmlDoc)
                     diagnostics = compilation.GetDiagnostics(CompilationStage.Compile).ToArray()
                 Finally
                     If ensureEnglishUICulture Then
-                        Threading.Thread.CurrentThread.CurrentUICulture = saveUICulture
+                        Thread.CurrentThread.CurrentUICulture = saveUICulture
                     End If
                 End Try
 
@@ -12170,8 +12170,8 @@ xmlDoc)
                         If preferred Is Nothing Then
                             ensureEnglishUICulture = False
                         Else
-                            saveUICulture = Threading.Thread.CurrentThread.CurrentUICulture
-                            Threading.Thread.CurrentThread.CurrentUICulture = preferred
+                            saveUICulture = Thread.CurrentThread.CurrentUICulture
+                            Thread.CurrentThread.CurrentUICulture = preferred
                         End If
                     End If
 
@@ -12179,7 +12179,7 @@ xmlDoc)
                         emitResult = compilation.Emit(output, xmlDocumentationStream:=xml)
                     Finally
                         If ensureEnglishUICulture Then
-                            Threading.Thread.CurrentThread.CurrentUICulture = saveUICulture
+                            Thread.CurrentThread.CurrentUICulture = saveUICulture
                         End If
                     End Try
 
@@ -12520,64 +12520,64 @@ End Class
             Using (New EnsureEnglishUICulture())
 
                 Dim comp = CreateCompilationWithMscorlib40(sources, parseOptions:=s_optionsDiagnoseDocComments)
-                Dim diags = DiagnosticBag.GetInstance()
+                Dim diags = BindingDiagnosticBag.GetInstance(withDiagnostics:=True, withDependencies:=False)
 
                 DocumentationCommentCompiler.WriteDocumentationCommentXml(
                     comp,
                     assemblyName:=Nothing,
                     xmlDocStream:=Nothing,
-                    diagnostics:=New BindingDiagnosticBag(diags),
+                    diagnostics:=diags,
                     cancellationToken:=Nothing,
                     filterTree:=comp.SyntaxTrees(0))
 
-                AssertTheseDiagnostics(diags.ToReadOnlyAndFree(),
+                AssertTheseDiagnostics(diags.ToReadOnlyAndFree().Diagnostics,
                                        <errors><![CDATA[
 BC42312: XML documentation comments must precede member or type declarations.
 ''' <summary> a.vb
    ~~~~~~~~~~~~~~~~
                                    ]]></errors>)
 
-                diags = DiagnosticBag.GetInstance()
+                diags = BindingDiagnosticBag.GetInstance(withDiagnostics:=True, withDependencies:=False)
 
                 DocumentationCommentCompiler.WriteDocumentationCommentXml(
                     comp,
                     assemblyName:=Nothing,
                     xmlDocStream:=Nothing,
-                    diagnostics:=New BindingDiagnosticBag(diags),
+                    diagnostics:=diags,
                     cancellationToken:=Nothing,
                     filterTree:=comp.SyntaxTrees(0),
                     filterSpanWithinTree:=New Text.TextSpan(0, 0))
 
-                Assert.Empty(diags.ToReadOnlyAndFree())
+                Assert.Empty(diags.ToReadOnlyAndFree().Diagnostics)
 
-                diags = DiagnosticBag.GetInstance()
+                diags = BindingDiagnosticBag.GetInstance(withDiagnostics:=True, withDependencies:=False)
 
                 DocumentationCommentCompiler.WriteDocumentationCommentXml(
                     comp,
                     assemblyName:=Nothing,
                     xmlDocStream:=Nothing,
-                    diagnostics:=New BindingDiagnosticBag(diags),
+                    diagnostics:=diags,
                     cancellationToken:=Nothing,
                     filterTree:=comp.SyntaxTrees(1))
 
-                AssertTheseDiagnostics(diags.ToReadOnlyAndFree(),
+                AssertTheseDiagnostics(diags.ToReadOnlyAndFree().Diagnostics,
                                        <errors><![CDATA[
 BC42312: XML documentation comments must precede member or type declarations.
 ''' <summary> b.vb
    ~~~~~~~~~~~~~~~~
                                    ]]></errors>)
 
-                diags = DiagnosticBag.GetInstance()
+                diags = BindingDiagnosticBag.GetInstance(withDiagnostics:=True, withDependencies:=False)
 
                 DocumentationCommentCompiler.WriteDocumentationCommentXml(
                     comp,
                     assemblyName:=Nothing,
                     xmlDocStream:=Nothing,
-                    diagnostics:=New BindingDiagnosticBag(diags),
+                    diagnostics:=diags,
                     cancellationToken:=Nothing,
                     filterTree:=Nothing)
 
-                AssertTheseDiagnostics(diags.ToReadOnlyAndFree(),
+                AssertTheseDiagnostics(diags.ToReadOnlyAndFree().Diagnostics,
                                        <errors><![CDATA[
 BC42312: XML documentation comments must precede member or type declarations.
 ''' <summary> a.vb
@@ -12587,18 +12587,18 @@ BC42312: XML documentation comments must precede member or type declarations.
    ~~~~~~~~~~~~~~~~
                                    ]]></errors>)
 
-                diags = DiagnosticBag.GetInstance()
+                diags = BindingDiagnosticBag.GetInstance(withDiagnostics:=True, withDependencies:=False)
 
                 DocumentationCommentCompiler.WriteDocumentationCommentXml(
                     comp,
                     assemblyName:=Nothing,
                     xmlDocStream:=Nothing,
-                    diagnostics:=New BindingDiagnosticBag(diags),
+                    diagnostics:=diags,
                     cancellationToken:=Nothing,
                     filterTree:=Nothing,
                     filterSpanWithinTree:=New Text.TextSpan(0, 0))
 
-                AssertTheseDiagnostics(diags.ToReadOnlyAndFree(),
+                AssertTheseDiagnostics(diags.ToReadOnlyAndFree().Diagnostics,
                                        <errors><![CDATA[
 BC42312: XML documentation comments must precede member or type declarations.
 ''' <summary> a.vb

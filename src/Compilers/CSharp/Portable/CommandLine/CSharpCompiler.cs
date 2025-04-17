@@ -373,9 +373,38 @@ namespace Microsoft.CodeAnalysis.CSharp
             }
         }
 
-        private protected override GeneratorDriver CreateGeneratorDriver(ParseOptions parseOptions, ImmutableArray<ISourceGenerator> generators, AnalyzerConfigOptionsProvider analyzerConfigOptionsProvider, ImmutableArray<AdditionalText> additionalTexts)
+        private protected override GeneratorDriver CreateGeneratorDriver(string baseDirectory, ParseOptions parseOptions, ImmutableArray<ISourceGenerator> generators, AnalyzerConfigOptionsProvider analyzerConfigOptionsProvider, ImmutableArray<AdditionalText> additionalTexts)
         {
-            return CSharpGeneratorDriver.Create(generators, additionalTexts, (CSharpParseOptions)parseOptions, analyzerConfigOptionsProvider);
+            return CSharpGeneratorDriver.Create(generators, additionalTexts, (CSharpParseOptions)parseOptions, analyzerConfigOptionsProvider, driverOptions: new GeneratorDriverOptions(disabledOutputs: IncrementalGeneratorOutputKind.Host, baseDirectory: baseDirectory));
+        }
+
+        private protected override void DiagnoseBadAccesses(TextWriter consoleOutput, ErrorLogger? errorLogger, Compilation compilation, ImmutableArray<Diagnostic> diagnostics)
+        {
+            DiagnosticBag newDiagnostics = DiagnosticBag.GetInstance();
+            foreach (var diag in diagnostics)
+            {
+                var symbol = diag switch
+                {
+                    { Code: (int)ErrorCode.ERR_BadAccess, Arguments: [Symbol s] } => s,
+                    { Code: (int)ErrorCode.ERR_InaccessibleGetter, Arguments: [Symbol s] } => s,
+                    { Code: (int)ErrorCode.ERR_InaccessibleSetter, Arguments: [Symbol s] } => s,
+                    { Code: (int)ErrorCode.ERR_ImplicitImplementationOfInaccessibleInterfaceMember, Arguments: [_, Symbol s, _] } => s,
+                    _ => null
+                };
+
+                if (symbol is null || ReferenceEquals(compilation.Assembly, symbol.ContainingAssembly))
+                {
+                    // Can't be IVT related
+                    continue;
+                }
+
+                // '{0}' is defined in assembly '{1}'.
+                newDiagnostics.Add(new CSDiagnostic(
+                    new CSDiagnosticInfo(ErrorCode.ERR_SymbolDefinedInAssembly, symbol, symbol.ContainingAssembly),
+                    diag.Location));
+            }
+
+            ReportDiagnostics(newDiagnostics.ToReadOnlyAndFree(), consoleOutput, errorLogger, compilation);
         }
     }
 }

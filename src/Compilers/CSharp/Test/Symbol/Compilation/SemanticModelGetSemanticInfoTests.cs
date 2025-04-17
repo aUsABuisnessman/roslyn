@@ -268,21 +268,16 @@ class K
 ";
             var semanticInfo = GetSemanticInfoForTest(sourceCode);
 
-            Assert.Equal("System.Int32", semanticInfo.Type.ToTestDisplayString());
-            Assert.Equal(TypeKind.Struct, semanticInfo.Type.TypeKind);
-            Assert.Equal("System.Int32", semanticInfo.ConvertedType.ToTestDisplayString());
-            Assert.Equal(TypeKind.Struct, semanticInfo.ConvertedType.TypeKind);
+            Assert.Null(semanticInfo.Type);
+            Assert.Null(semanticInfo.ConvertedType);
             Assert.Equal(ConversionKind.Identity, semanticInfo.ImplicitConversion.Kind);
 
             Assert.Null(semanticInfo.Symbol);
-            Assert.Equal(CandidateReason.NotInvocable, semanticInfo.CandidateReason);
-            Assert.Equal(1, semanticInfo.CandidateSymbols.Length);
-            var sortedCandidates = semanticInfo.CandidateSymbols.OrderBy(s => s.ToTestDisplayString(), StringComparer.Ordinal).ToArray();
-            Assert.Equal("System.Int32 K.f", sortedCandidates[0].ToTestDisplayString());
-            Assert.Equal(SymbolKind.Field, sortedCandidates[0].Kind);
+            Assert.Equal(CandidateReason.None, semanticInfo.CandidateReason);
+            // Tracked by https://github.com/dotnet/roslyn/issues/76130 : see if we can restore a behavior closer to previous (ie. returning the field as candidate symbol)
+            Assert.Empty(semanticInfo.CandidateSymbols);
 
             Assert.Equal(0, semanticInfo.MethodGroup.Length);
-
             Assert.False(semanticInfo.IsCompileTimeConstant);
         }
 
@@ -12006,9 +12001,9 @@ namespace Test
 
             Assert.Equal("?[,,]", semanticInfo.Type.ToTestDisplayString());
             Assert.Equal(TypeKind.Array, semanticInfo.Type.TypeKind);
-            Assert.Equal("?", semanticInfo.ConvertedType.ToTestDisplayString());
-            Assert.Equal(TypeKind.Error, semanticInfo.ConvertedType.TypeKind);
-            Assert.Equal(ConversionKind.NoConversion, semanticInfo.ImplicitConversion.Kind);
+            Assert.Equal("?[,,]", semanticInfo.ConvertedType.ToTestDisplayString());
+            Assert.Equal(TypeKind.Array, semanticInfo.ConvertedType.TypeKind);
+            Assert.Equal(ConversionKind.Identity, semanticInfo.ImplicitConversion.Kind);
 
             Assert.Null(semanticInfo.Symbol);
             Assert.Equal(CandidateReason.None, semanticInfo.CandidateReason);
@@ -12041,9 +12036,9 @@ namespace Test
 
             Assert.Equal("?[,,]", semanticInfo.Type.ToTestDisplayString());
             Assert.Equal(TypeKind.Array, semanticInfo.Type.TypeKind);
-            Assert.Equal("?", semanticInfo.ConvertedType.ToTestDisplayString());
-            Assert.Equal(TypeKind.Error, semanticInfo.ConvertedType.TypeKind);
-            Assert.Equal(ConversionKind.NoConversion, semanticInfo.ImplicitConversion.Kind);
+            Assert.Equal("?[,,]", semanticInfo.ConvertedType.ToTestDisplayString());
+            Assert.Equal(TypeKind.Array, semanticInfo.ConvertedType.TypeKind);
+            Assert.Equal(ConversionKind.Identity, semanticInfo.ImplicitConversion.Kind);
 
             Assert.Null(semanticInfo.Symbol);
             Assert.Equal(CandidateReason.None, semanticInfo.CandidateReason);
@@ -12077,8 +12072,8 @@ public class C
 
             Assert.Equal("System.Int32[]", semanticInfo.Type.ToTestDisplayString());
             Assert.Equal(TypeKind.Array, semanticInfo.Type.TypeKind);
-            Assert.Equal("?", semanticInfo.ConvertedType.ToTestDisplayString());
-            Assert.Equal(TypeKind.Error, semanticInfo.ConvertedType.TypeKind);
+            Assert.Equal("?[]", semanticInfo.ConvertedType.ToTestDisplayString());
+            Assert.Equal(TypeKind.Array, semanticInfo.ConvertedType.TypeKind);
             Assert.Equal(ConversionKind.NoConversion, semanticInfo.ImplicitConversion.Kind);
 
             Assert.Null(semanticInfo.Symbol);

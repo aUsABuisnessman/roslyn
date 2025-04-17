@@ -199,6 +199,33 @@ namespace Microsoft.CodeAnalysis.CSharp.UnitTests
                 );
         }
 
+        [Fact, WorkItem("https://github.com/dotnet/roslyn/issues/67975")]
+        public void SumTypeInTuple()
+        {
+            var source = """
+                #nullable enable
+                class C1 { }
+                class C2 { }
+                class C3 { }
+                struct SumType<T1, T2> where T1 : notnull where T2 : notnull
+                {
+                    public static implicit operator SumType<T1, T2>(T1 _) => throw null!;
+                    public static implicit operator SumType<T1, T2>(T2 _) => throw null!;
+                }
+                class D
+                {
+                    public (C1, SumType<C2, C3>) F;
+
+                    public void M(C1 one, C2? two, C3? three)
+                    {
+                        if (three == null) return;
+                        F = (one, two is not null ? two : three);
+                    }
+                }
+                """;
+            CreateCompilation(source).VerifyDiagnostics();
+        }
+
         [WorkItem(545408, "http://vstfdevdiv:8080/DevDiv2/DevDiv/_workitems/edit/545408")]
         [Fact]
         public void TestDelegateCovarianceConversions()
@@ -1411,23 +1438,25 @@ class TestClass
             var compilation = CreateCompilation(source, options: TestOptions.DebugDll);
 
             compilation.VerifyDiagnostics(
-    // (10,9): error CS0131: The left-hand side of an assignment must be a variable, property or indexer
-    //         receiver?.test += Main;
-    Diagnostic(ErrorCode.ERR_AssgLvalueExpected, "receiver?.test").WithLocation(10, 9)
+                // (6,18): warning CS0067: The event 'TestClass.test' is never used
+                //     event Action test;
+                Diagnostic(ErrorCode.WRN_UnreferencedEvent, "test").WithArguments("TestClass.test").WithLocation(6, 18)
                 );
 
             var tree = compilation.SyntaxTrees.Single();
             var memberBinding = tree.GetRoot().DescendantNodes().OfType<MemberBindingExpressionSyntax>().Single();
-            var access = (ConditionalAccessExpressionSyntax)memberBinding.Parent!;
+            var assignment = (AssignmentExpressionSyntax)memberBinding.Parent!;
+            var access = (ConditionalAccessExpressionSyntax)assignment.Parent!;
 
             Assert.Equal(".test", memberBinding.ToString());
-            Assert.Equal("receiver?.test", access.ToString());
+            Assert.Equal(".test += Main", assignment.ToString());
+            Assert.Equal("receiver?.test += Main", access.ToString());
 
             var model = compilation.GetSemanticModel(tree);
 
             Assert.Equal("event System.Action TestClass.test", model.GetSymbolInfo(memberBinding).Symbol.ToTestDisplayString());
             Assert.Equal("event System.Action TestClass.test", model.GetSymbolInfo(memberBinding.Name).Symbol.ToTestDisplayString());
-
+            Assert.Equal("void TestClass.test.add", model.GetSymbolInfo(assignment).Symbol.ToTestDisplayString());
             Assert.Null(model.GetSymbolInfo(access).Symbol);
         }
 

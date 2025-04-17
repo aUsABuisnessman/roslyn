@@ -201,26 +201,14 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
             switch (symbol.Kind)
             {
                 case SymbolKind.NamedType:
+                case SymbolKind.ErrorType:
                     return ((NamedTypeSymbol)symbol).ConstructedFrom;
 
                 case SymbolKind.Method:
                     return ((MethodSymbol)symbol).ConstructedFrom;
 
                 default:
-                    throw ExceptionUtilities.UnexpectedValue(symbol.Kind);
-            }
-        }
-
-        public static bool IsSourceParameterWithEnumeratorCancellationAttribute(this ParameterSymbol parameter)
-        {
-            switch (parameter)
-            {
-                case SourceComplexParameterSymbolBase source:
-                    return source.HasEnumeratorCancellationAttribute;
-                case SynthesizedComplexParameterSymbol synthesized:
-                    return synthesized.HasEnumeratorCancellationAttribute;
-                default:
-                    return false;
+                    return symbol;
             }
         }
 
@@ -289,7 +277,7 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
 
         internal static void CheckUnsafeModifier(this Symbol symbol, DeclarationModifiers modifiers, BindingDiagnosticBag diagnostics)
         {
-            symbol.CheckUnsafeModifier(modifiers, symbol.Locations[0], diagnostics);
+            symbol.CheckUnsafeModifier(modifiers, symbol.GetFirstLocation(), diagnostics);
         }
 
         internal static void CheckUnsafeModifier(this Symbol symbol, DeclarationModifiers modifiers, Location errorLocation, BindingDiagnosticBag diagnostics)
@@ -821,33 +809,28 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
             return symbol.GetSymbol<FunctionPointerTypeSymbol>();
         }
 
-        /// <summary>
-        /// Returns true if the method has a [AsyncMethodBuilder(typeof(B))] attribute. If so it returns type B.
-        /// Validation of builder type B is left for elsewhere. This method returns B without validation of any kind.
-        /// </summary>
-        internal static bool HasAsyncMethodBuilderAttribute(this Symbol symbol, [NotNullWhen(true)] out object? builderArgument)
-        {
-            Debug.Assert(symbol is not null);
-
-            // Find the AsyncMethodBuilder attribute.
-            foreach (var attr in symbol.GetAttributes())
-            {
-                if (attr.IsTargetAttribute(symbol, AttributeDescription.AsyncMethodBuilderAttribute)
-                    && attr.CommonConstructorArguments.Length == 1
-                    && attr.CommonConstructorArguments[0].Kind == TypedConstantKind.Type)
-                {
-                    builderArgument = attr.CommonConstructorArguments[0].ValueInternal!;
-                    return true;
-                }
-            }
-
-            builderArgument = null;
-            return false;
-        }
-
         internal static bool IsRequired(this Symbol symbol) => symbol is FieldSymbol { IsRequired: true } or PropertySymbol { IsRequired: true };
 
         internal static bool ShouldCheckRequiredMembers(this MethodSymbol method)
             => method is { MethodKind: MethodKind.Constructor, HasSetsRequiredMembers: false };
+
+        internal static int GetOverloadResolutionPriority(this Symbol symbol)
+        {
+            Debug.Assert(symbol is MethodSymbol or PropertySymbol);
+            return symbol is MethodSymbol method ? method.OverloadResolutionPriority : ((PropertySymbol)symbol).OverloadResolutionPriority;
+        }
+
+        internal static bool IsExtensionParameter(this ParameterSymbol parameter)
+        {
+            return parameter.ContainingSymbol is TypeSymbol { IsExtension: true };
+        }
+
+        internal static bool IsExtensionParameterImplementation(this ParameterSymbol parameter)
+        {
+            Debug.Assert(parameter.IsDefinition);
+            return parameter.ContainingSymbol is SourceExtensionImplementationMethodSymbol implementationMethod
+                && !implementationMethod.UnderlyingMethod.IsStatic
+                && parameter.Ordinal == 0;
+        }
     }
 }

@@ -2,6 +2,7 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 // See the LICENSE file in the project root for more information.
 
+using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Runtime.InteropServices;
@@ -41,7 +42,11 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
 
             internal sealed override bool HasCodeAnalysisEmbeddedAttribute => false;
 
+            internal sealed override bool HasCompilerLoweringPreserveAttribute => false;
+
             internal sealed override bool IsInterpolatedStringHandlerType => false;
+
+            internal sealed override ParameterSymbol? ExtensionParameter => null;
 
             internal sealed override ImmutableArray<Symbol> GetEarlyAttributeDecodingMembers()
             {
@@ -73,7 +78,11 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
                 get { return false; }
             }
 
+            internal sealed override bool IsFileLocal => false;
             internal sealed override FileIdentifier? AssociatedFileIdentifier => null;
+
+            internal override string ExtensionName
+                => throw ExceptionUtilities.Unreachable();
 
             public sealed override int Arity
             {
@@ -132,12 +141,12 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
                 return ImmutableArray<NamedTypeSymbol>.Empty;
             }
 
-            public sealed override ImmutableArray<NamedTypeSymbol> GetTypeMembers(string name)
+            public sealed override ImmutableArray<NamedTypeSymbol> GetTypeMembers(ReadOnlyMemory<char> name)
             {
                 return ImmutableArray<NamedTypeSymbol>.Empty;
             }
 
-            public sealed override ImmutableArray<NamedTypeSymbol> GetTypeMembers(string name, int arity)
+            public sealed override ImmutableArray<NamedTypeSymbol> GetTypeMembers(ReadOnlyMemory<char> name, int arity)
             {
                 return ImmutableArray<NamedTypeSymbol>.Empty;
             }
@@ -277,6 +286,31 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
             internal sealed override IEnumerable<(MethodSymbol Body, MethodSymbol Implemented)> SynthesizedInterfaceMethodImpls()
             {
                 return SpecializedCollections.EmptyEnumerable<(MethodSymbol Body, MethodSymbol Implemented)>();
+            }
+
+            internal override bool GetGuidString(out string? guidString)
+            {
+                guidString = null;
+                return false;
+            }
+
+            internal sealed override bool HasInlineArrayAttribute(out int length)
+            {
+                length = 0;
+                return false;
+            }
+
+            internal sealed override bool HasCollectionBuilderAttribute(out TypeSymbol? builderType, out string? methodName)
+            {
+                builderType = null;
+                methodName = null;
+                return false;
+            }
+
+            internal sealed override bool HasAsyncMethodBuilderAttribute(out TypeSymbol? builderArgument)
+            {
+                builderArgument = null;
+                return false;
             }
         }
     }

@@ -14,6 +14,7 @@ Imports Microsoft.VisualStudio.Debugger.Evaluation
 Imports Microsoft.VisualStudio.Debugger.Evaluation.ClrCompilation
 Imports Roslyn.Test.Utilities
 Imports Xunit
+Imports Basic.Reference.Assemblies
 
 Namespace Microsoft.CodeAnalysis.VisualBasic.ExpressionEvaluator.UnitTests
     Public Class LocalsTests
@@ -35,8 +36,8 @@ End Class"
                     Dim typeName As String = Nothing
                     Dim assembly = context.CompileGetLocals(locals, argumentsOnly:=False, typeName:=typeName, testData:=testData)
                     Assert.NotNull(assembly)
-                    Assert.Equal(0, assembly.Count)
-                    Assert.Equal(0, locals.Count)
+                    Assert.Empty(assembly)
+                    Assert.Empty(locals)
                     locals.Free()
                 End Sub)
         End Sub
@@ -874,6 +875,67 @@ End Class"
   IL_001f:  stsfld     ""<>x._Closure$__.$I0-0 As System.Action""
   IL_0024:  call       ""Sub C.F(System.Action)""
   IL_0029:  ret
+}")
+                End Sub)
+        End Sub
+
+        <Fact>
+        Public Sub CapturedParameters()
+            Dim source = "
+Imports System
+
+Class C
+    Sub F(a As Integer, b As Byte, c As Boolean)
+        G(Function() a + b)
+    End Sub
+
+    Sub G(a As Func(Of Integer))
+    End Sub
+End Class
+"
+            Dim compilation0 = CreateCompilation(source, options:=TestOptions.DebugDll)
+            WithRuntimeInstance(compilation0,
+                Sub(runtime)
+                    Dim context = CreateMethodContext(runtime, "C.F")
+                    Dim testData = New CompilationTestData()
+                    Dim locals = ArrayBuilder(Of LocalAndMethod).GetInstance()
+                    Dim typeName As String = Nothing
+                    context.CompileGetLocals(locals, argumentsOnly:=False, typeName:=typeName, testData:=testData)
+
+                    VerifyLocal(testData, typeName, locals(0), "<>m0", "Me", expectedILOpt:="
+{
+  // Code size        2 (0x2)
+  .maxstack  1
+  .locals init (C._Closure$__1-0 V_0) //$VB$Closure_0
+  IL_0000:  ldarg.0
+  IL_0001:  ret
+}
+")
+                    VerifyLocal(testData, typeName, locals(1), "<>m1", "a", expectedILOpt:="
+ {
+  // Code size        7 (0x7)
+  .maxstack  1
+  .locals init (C._Closure$__1-0 V_0) //$VB$Closure_0
+  IL_0000:  ldloc.0
+  IL_0001:  ldfld      ""C._Closure$__1-0.$VB$Local_a As Integer""
+  IL_0006:  ret
+}")
+                    VerifyLocal(testData, typeName, locals(2), "<>m2", "b", expectedILOpt:="
+{
+  // Code size        7 (0x7)
+  .maxstack  1
+  .locals init (C._Closure$__1-0 V_0) //$VB$Closure_0
+  IL_0000:  ldloc.0
+  IL_0001:  ldfld      ""C._Closure$__1-0.$VB$Local_b As Byte""
+  IL_0006:  ret
+}")
+                    VerifyLocal(testData, typeName, locals(3), "<>m3", "c", expectedILOpt:="
+{
+  // Code size        2 (0x2)
+  .maxstack  1
+  .locals init (C._Closure$__1-0 V_0) //$VB$Closure_0
+  IL_0000:  ldarg.3
+  IL_0001:  ret
 }")
                 End Sub)
         End Sub
@@ -1727,7 +1789,7 @@ End Class"
                         Diagnostic(ERRID.ERR_TypeRefResolutionError3, "a").WithArguments("A", "Test.dll").WithLocation(1, 1)
                     })
 
-                    Assert.Equal(0, locals.Count)
+                    Assert.Empty(locals)
                     locals.Free()
                 End Sub)
         End Sub
@@ -1954,7 +2016,7 @@ End Module
 }
 "
 
-            Dim comp = CreateCompilationWithMscorlib40({source}, {TestMetadata.Net40.SystemCore, TestMetadata.Net40.MicrosoftVisualBasic}, TestOptions.DebugDll)
+            Dim comp = CreateCompilationWithMscorlib40({source}, {Net40.References.SystemCore, Net40.References.MicrosoftVisualBasic}, TestOptions.DebugDll)
             WithRuntimeInstance(comp,
                 Sub(runtime)
                     Dim context = CreateMethodContext(runtime, "M.VB$StateMachine_0_F.MoveNext")
@@ -3311,7 +3373,7 @@ End Class"
 
             Assert.NotNull(assembly)
             If count = 0 Then
-                Assert.Equal(0, assembly.Count)
+                Assert.Empty(assembly)
             Else
                 Assert.InRange(assembly.Count, 0, Integer.MaxValue)
             End If
@@ -3320,10 +3382,10 @@ End Class"
 
         Private Shared Sub GetLocals(runtime As RuntimeInstance, methodName As String, debugInfo As MethodDebugInfoBytes, locals As ArrayBuilder(Of LocalAndMethod), count As Integer)
             Dim blocks As ImmutableArray(Of MetadataBlock) = Nothing
-            Dim moduleVersionId As Guid = Nothing
+            Dim moduleId As ModuleId = Nothing
             Dim methodToken = 0
             Dim localSignatureToken = 0
-            GetContextState(runtime, methodName, blocks, moduleVersionId, symReader:=Nothing, methodOrTypeToken:=methodToken, localSignatureToken:=localSignatureToken)
+            GetContextState(runtime, methodName, blocks, moduleId, symReader:=Nothing, methodOrTypeToken:=methodToken, localSignatureToken:=localSignatureToken)
 
             Dim symReader = New MockSymUnmanagedReader(
                 New Dictionary(Of Integer, MethodDebugInfoBytes)() From
@@ -3335,7 +3397,7 @@ End Class"
                 blocks,
                 MakeDummyLazyAssemblyReaders(),
                 symReader,
-                moduleVersionId,
+                moduleId,
                 methodToken,
                 methodVersion:=1,
                 ilOffset:=0,
@@ -3346,7 +3408,7 @@ End Class"
 
             Assert.NotNull(assembly)
             If count = 0 Then
-                Assert.Equal(0, assembly.Count)
+                Assert.Empty(assembly)
             Else
                 Assert.InRange(assembly.Count, 0, Integer.MaxValue)
             End If

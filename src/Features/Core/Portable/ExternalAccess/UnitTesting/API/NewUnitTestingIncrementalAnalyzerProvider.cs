@@ -4,7 +4,6 @@
 
 using Microsoft.CodeAnalysis.ExternalAccess.UnitTesting.SolutionCrawler;
 using Microsoft.CodeAnalysis.Host;
-using Roslyn.Utilities;
 
 namespace Microsoft.CodeAnalysis.ExternalAccess.UnitTesting.Api;
 
@@ -37,7 +36,7 @@ internal sealed partial class NewUnitTestingIncrementalAnalyzerProvider : IUnitT
     {
         var solutionCrawlerService = _services.GetService<IUnitTestingSolutionCrawlerService>();
         solutionCrawlerService?.Reanalyze(
-            _workspaceKind, _services, this.CreateIncrementalAnalyzer(), projectIds: null, documentIds: null, highPriority: false);
+            _workspaceKind, _services, this.CreateIncrementalAnalyzer(), projectIds: null, documentIds: null);
     }
 
     public static NewUnitTestingIncrementalAnalyzerProvider? TryRegister(string? workspaceKind, SolutionServices services, string analyzerName, INewUnitTestingIncrementalAnalyzerProviderImplementation provider)
@@ -53,10 +52,7 @@ internal sealed partial class NewUnitTestingIncrementalAnalyzerProvider : IUnitT
 
         var metadata = new UnitTestingIncrementalAnalyzerProviderMetadata(
             analyzerName,
-#if false // Not used in unit testing crawling
-            highPriorityForActiveFile: false,
-#endif
-            new[] { workspaceKind });
+            [workspaceKind]);
 
         solutionCrawlerRegistrationService.AddAnalyzerProvider(analyzerProvider, metadata);
         return analyzerProvider;

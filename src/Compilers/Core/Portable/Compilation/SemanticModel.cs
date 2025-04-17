@@ -15,7 +15,7 @@ namespace Microsoft.CodeAnalysis
 {
     /// <summary>
     /// Allows asking semantic questions about a tree of syntax nodes in a Compilation. Typically,
-    /// an instance is obtained by a call to GetBinding on a Compilation or Compilation.
+    /// an instance is obtained by a call to <see cref="Compilation.GetSemanticModel(SyntaxTree, SemanticModelOptions)"/>.
     /// </summary>
     /// <remarks>
     /// <para>An instance of SemanticModel caches local symbols and semantic information. Thus, it
@@ -87,6 +87,9 @@ namespace Microsoft.CodeAnalysis
         {
             get { return false; }
         }
+
+        [Experimental(RoslynExperiments.NullableDisabledSemanticModel, UrlFormat = RoslynExperiments.NullableDisabledSemanticModel_Url)]
+        public abstract bool NullableAnalysisIsDisabled { get; }
 
         /// <summary>
         /// Gets symbol information about a syntax node.
@@ -398,9 +401,14 @@ namespace Microsoft.CodeAnalysis
         protected abstract ISymbol? GetDeclaredSymbolCore(SyntaxNode declaration, CancellationToken cancellationToken = default(CancellationToken));
 
         /// <summary>
-        /// Gets the symbol associated with a declaration syntax node. Unlike <see cref="GetDeclaredSymbolForNode(SyntaxNode, CancellationToken)"/>,
-        /// this method returns all symbols declared by a given declaration syntax node. Specifically, in the case of field declaration syntax nodes,
-        /// which can declare multiple symbols, this method returns all declared symbols.
+        /// Gets the symbols associated with a declaration syntax node. Unlike <see cref="GetDeclaredSymbolForNode(SyntaxNode, CancellationToken)"/>,
+        /// this method returns all symbols declared by a given declaration syntax node. Specifically:
+        /// <list type="number">
+        /// <item>in the case of field declaration syntax nodes, which can declare multiple symbols, this method returns
+        /// all declared symbols.</item>
+        /// <item>in the case of type declarations with a primary constructor, both the <see cref="INamedTypeSymbol"/>
+        /// for the type, and the <see cref="IMethodSymbol"/> for the primary constructor will be returned.</item>
+        /// </list>
         /// </summary>
         /// <param name="declaration">A syntax node that is a declaration. This can be any type
         /// derived from MemberDeclarationSyntax, TypeDeclarationSyntax, EnumDeclarationSyntax,
@@ -414,9 +422,14 @@ namespace Microsoft.CodeAnalysis
         }
 
         /// <summary>
-        /// Gets the symbol associated with a declaration syntax node. Unlike <see cref="GetDeclaredSymbolForNode(SyntaxNode, CancellationToken)"/>,
-        /// this method returns all symbols declared by a given declaration syntax node. Specifically, in the case of field declaration syntax nodes,
-        /// which can declare multiple symbols, this method returns all declared symbols.
+        /// Gets the symbols associated with a declaration syntax node. Unlike <see cref="GetDeclaredSymbolForNode(SyntaxNode, CancellationToken)"/>,
+        /// this method returns all symbols declared by a given declaration syntax node. Specifically:
+        /// <list type="number">
+        /// <item>in the case of field declaration syntax nodes, which can declare multiple symbols, this method returns
+        /// all declared symbols.</item>
+        /// <item>in the case of type declarations with a primary constructor, both the <see cref="INamedTypeSymbol"/>
+        /// for the type, and the <see cref="IMethodSymbol"/> for the primary constructor will be returned.</item>
+        /// </list>
         /// </summary>
         /// <param name="declaration">A syntax node that is a declaration. This can be any type
         /// derived from MemberDeclarationSyntax, TypeDeclarationSyntax, EnumDeclarationSyntax,
@@ -436,7 +449,7 @@ namespace Microsoft.CodeAnalysis
         /// scope around position is used.</param>
         /// <param name="name">The name of the symbol to find. If null is specified then symbols
         /// with any names are returned.</param>
-        /// <param name="includeReducedExtensionMethods">Consider (reduced) extension methods.</param>
+        /// <param name="includeReducedExtensionMethods">Consider extension members. Classic extension methods will be returned in reduced form.</param>
         /// <returns>A list of symbols that were found. If no symbols were found, an empty list is returned.</returns>
         /// <remarks>
         /// The "position" is used to determine what variables are visible and accessible. Even if "container" is

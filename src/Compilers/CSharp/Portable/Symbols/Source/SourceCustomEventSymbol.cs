@@ -155,8 +155,8 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
                     diagnostics.Add(ErrorCode.ERR_RuntimeDoesNotSupportDefaultInterfaceImplementation, this.GetFirstLocation());
                 }
 
-                _addMethod = new SynthesizedEventAccessorSymbol(this, isAdder: true, explicitlyImplementedEvent, aliasQualifierOpt);
-                _removeMethod = new SynthesizedEventAccessorSymbol(this, isAdder: false, explicitlyImplementedEvent, aliasQualifierOpt);
+                _addMethod = new SynthesizedEventAccessorSymbol(this, isAdder: true, isExpressionBodied: false, explicitlyImplementedEvent, aliasQualifierOpt);
+                _removeMethod = new SynthesizedEventAccessorSymbol(this, isAdder: false, isExpressionBodied: false, explicitlyImplementedEvent, aliasQualifierOpt);
             }
             else
             {
@@ -169,6 +169,8 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
                     ImmutableArray<EventSymbol>.Empty :
                     ImmutableArray.Create<EventSymbol>(explicitlyImplementedEvent);
         }
+
+        protected override bool AccessorsHaveImplementation => true;
 
         public override TypeWithAnnotations TypeWithAnnotations
         {
@@ -225,7 +227,7 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
             {
                 // Note: we delayed nullable-related checks that could pull on NonNullTypes
                 EventSymbol explicitlyImplementedEvent = _explicitInterfaceImplementations[0];
-                TypeSymbol.CheckNullableReferenceTypeAndScopedMismatchOnImplementingMember(this.ContainingType, this, explicitlyImplementedEvent, isExplicit: true, diagnostics);
+                TypeSymbol.CheckModifierMismatchOnImplementingMember(this.ContainingType, this, explicitlyImplementedEvent, isExplicit: true, diagnostics);
             }
         }
 

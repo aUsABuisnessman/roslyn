@@ -24,11 +24,14 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
             TypeWithAnnotations returnType,
             DelegateDeclarationSyntax syntax,
             MethodKind methodKind,
+            RefKind refKind,
             DeclarationModifiers declarationModifiers)
-            : base(delegateType, syntax.GetReference(), location: syntax.Identifier.GetLocation(), isIterator: false)
+            : base(delegateType, syntax.GetReference(), location: syntax.Identifier.GetLocation(), isIterator: false,
+                   (declarationModifiers, MakeFlags(
+                                                    methodKind, refKind, declarationModifiers, returnType.IsVoidType(), returnsVoidIsSet: true, isExpressionBodied: false,
+                                                    isExtensionMethod: false, isVarArg: false, isNullableAnalysisEnabled: false, isExplicitInterfaceImplementation: false, hasThisInitializer: false)))
         {
             _returnType = returnType;
-            this.MakeFlags(methodKind, declarationModifiers, _returnType.IsVoidType(), isExtensionMethod: false, isNullableAnalysisEnabled: false);
         }
 
         internal sealed override ExecutableCodeBinder TryGetBodyBinder(BinderFactory binderFactoryOpt = null, bool ignoreAccessibility = false) => throw ExceptionUtilities.Unreachable();
@@ -129,19 +132,11 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
             // TODO: move more functionality into here, making these symbols more lazy
         }
 
-        public sealed override bool IsVararg
-        {
-            get
-            {
-                return false;
-            }
-        }
-
         public sealed override ImmutableArray<ParameterSymbol> Parameters
         {
             get
             {
-                Debug.Assert(!_parameters.IsDefault, $"Expected {nameof(InitializeParameters)} prior to accessing this property.");
+                RoslynDebug.Assert(!_parameters.IsDefault, $"Expected {nameof(InitializeParameters)} prior to accessing this property.");
                 return _parameters.NullToEmpty();
             }
         }
@@ -176,11 +171,6 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
             }
         }
 
-        internal override bool IsExpressionBodied
-        {
-            get { return false; }
-        }
-
         internal override bool GenerateDebugInfo
         {
             get { return false; }
@@ -211,6 +201,11 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
             return System.AttributeTargets.Delegate;
         }
 
+        internal sealed override int TryGetOverloadResolutionPriority()
+        {
+            return 0;
+        }
+
         private sealed class Constructor : SourceDelegateMethodSymbol
         {
             internal Constructor(
@@ -219,7 +214,7 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
                 TypeWithAnnotations objectType,
                 TypeWithAnnotations intPtrType,
                 DelegateDeclarationSyntax syntax)
-                : base(delegateType, voidType, syntax, MethodKind.Constructor, DeclarationModifiers.Public)
+                : base(delegateType, voidType, syntax, MethodKind.Constructor, RefKind.None, DeclarationModifiers.Public)
             {
                 InitializeParameters(ImmutableArray.Create<ParameterSymbol>(
                     SynthesizedParameterSymbol.Create(this, objectType, 0, RefKind.None, "object"),
@@ -229,11 +224,6 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
             public override string Name
             {
                 get { return WellKnownMemberNames.InstanceConstructorName; }
-            }
-
-            public override RefKind RefKind
-            {
-                get { return RefKind.None; }
             }
 
             internal override OneOrMany<SyntaxList<AttributeListSyntax>> GetReturnTypeAttributeDeclarations()
@@ -256,9 +246,10 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
             protected override bool HasSetsRequiredMembersImpl => false;
         }
 
+        // Note that `in`/`ref readonly` parameters currently don't have `modreq(In)`
+        // even though the `Invoke` method is virtual. https://github.com/dotnet/roslyn/issues/69079
         private sealed class InvokeMethod : SourceDelegateMethodSymbol
         {
-            private readonly RefKind _refKind;
             private readonly ImmutableArray<CustomModifier> _refCustomModifiers;
 
             internal InvokeMethod(
@@ -268,10 +259,8 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
                 DelegateDeclarationSyntax syntax,
                 Binder binder,
                 BindingDiagnosticBag diagnostics)
-                : base(delegateType, returnType, syntax, MethodKind.DelegateInvoke, DeclarationModifiers.Virtual | DeclarationModifiers.Public)
+                : base(delegateType, returnType, syntax, MethodKind.DelegateInvoke, refKind, DeclarationModifiers.Virtual | DeclarationModifiers.Public)
             {
-                this._refKind = refKind;
-
                 SyntaxToken arglistToken;
                 var parameters = ParameterHelpers.MakeParameters(
                     binder, this, syntax.ParameterList, out arglistToken,
@@ -288,7 +277,7 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
                     diagnostics.Add(ErrorCode.ERR_IllegalVarArgs, new SourceLocation(arglistToken));
                 }
 
-                if (_refKind == RefKind.RefReadOnly)
+                if (this.RefKind == RefKind.RefReadOnly)
                 {
                     var modifierType = binder.GetWellKnownType(WellKnownType.System_Runtime_InteropServices_InAttribute, diagnostics, syntax.ReturnType);
                     _refCustomModifiers = ImmutableArray.Create(CSharpCustomModifier.CreateRequired(modifierType));
@@ -304,11 +293,6 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
             public override string Name
             {
                 get { return WellKnownMemberNames.DelegateInvokeName; }
-            }
-
-            public override RefKind RefKind
-            {
-                get { return _refKind; }
             }
 
             internal override LexicalSortKey GetLexicalSortKey()
@@ -332,12 +316,13 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
 
                 base.AfterAddingTypeMembersChecks(conversions, diagnostics);
 
-                if (_refKind == RefKind.RefReadOnly)
+                if (this.RefKind == RefKind.RefReadOnly)
                 {
                     compilation.EnsureIsReadOnlyAttributeExists(diagnostics, location, modifyCompilation: true);
                 }
 
-                ParameterHelpers.EnsureIsReadOnlyAttributeExists(compilation, Parameters, diagnostics, modifyCompilation: true);
+                ParameterHelpers.EnsureRefKindAttributesExist(compilation, Parameters, diagnostics, modifyCompilation: true);
+                ParameterHelpers.EnsureParamCollectionAttributeExistsAndModifyCompilation(compilation, Parameters, diagnostics);
 
                 if (compilation.ShouldEmitNativeIntegerAttributes(ReturnType))
                 {
@@ -367,7 +352,7 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
                 TypeWithAnnotations objectType,
                 TypeWithAnnotations asyncCallbackType,
                 DelegateDeclarationSyntax syntax)
-                : base((SourceNamedTypeSymbol)invoke.ContainingType, iAsyncResultType, syntax, MethodKind.Ordinary, DeclarationModifiers.Virtual | DeclarationModifiers.Public)
+                : base((SourceNamedTypeSymbol)invoke.ContainingType, iAsyncResultType, syntax, MethodKind.Ordinary, RefKind.None, DeclarationModifiers.Virtual | DeclarationModifiers.Public)
             {
                 var parameters = ArrayBuilder<ParameterSymbol>.GetInstance();
                 foreach (SourceParameterSymbol p in invoke.Parameters)
@@ -388,11 +373,6 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
                 get { return WellKnownMemberNames.DelegateBeginInvokeName; }
             }
 
-            public override RefKind RefKind
-            {
-                get { return RefKind.None; }
-            }
-
             internal override OneOrMany<SyntaxList<AttributeListSyntax>> GetReturnTypeAttributeDeclarations()
             {
                 // BeginInvoke method doesn't have return type attributes
@@ -410,7 +390,7 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
                 InvokeMethod invoke,
                 TypeWithAnnotations iAsyncResultType,
                 DelegateDeclarationSyntax syntax)
-                : base((SourceNamedTypeSymbol)invoke.ContainingType, invoke.ReturnTypeWithAnnotations, syntax, MethodKind.Ordinary, DeclarationModifiers.Virtual | DeclarationModifiers.Public)
+                : base((SourceNamedTypeSymbol)invoke.ContainingType, invoke.ReturnTypeWithAnnotations, syntax, MethodKind.Ordinary, invoke.RefKind, DeclarationModifiers.Virtual | DeclarationModifiers.Public)
             {
                 _invoke = invoke;
 
@@ -433,8 +413,6 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
             protected override SourceMemberMethodSymbol BoundAttributesSource => _invoke;
 
             public override string Name => WellKnownMemberNames.DelegateEndInvokeName;
-
-            public override RefKind RefKind => _invoke.RefKind;
 
             public override ImmutableArray<CustomModifier> RefCustomModifiers => _invoke.RefCustomModifiers;
         }

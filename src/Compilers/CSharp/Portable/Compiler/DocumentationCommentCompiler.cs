@@ -258,7 +258,8 @@ namespace Microsoft.CodeAnalysis.CSharp
             bool shouldSkipPartialDefinitionComments = false;
             if (symbol.IsPartialDefinition())
             {
-                if (symbol is MethodSymbol { PartialImplementationPart: MethodSymbol implementationPart })
+                Symbol? implementationPart = symbol.GetPartialImplementationPart();
+                if (implementationPart is not null)
                 {
                     Visit(implementationPart);
 
@@ -1231,7 +1232,7 @@ namespace Microsoft.CodeAnalysis.CSharp
         private string GetAndEndTemporaryString()
         {
             TemporaryStringBuilder t = _temporaryStringBuilders.Pop();
-            Debug.Assert(_indentDepth == t.InitialIndentDepth, $"Temporary strings should be indent-neutral (was {t.InitialIndentDepth}, is {_indentDepth})");
+            RoslynDebug.Assert(_indentDepth == t.InitialIndentDepth, $"Temporary strings should be indent-neutral (was {t.InitialIndentDepth}, is {_indentDepth})");
             _indentDepth = t.InitialIndentDepth;
             return t.Pooled.ToStringAndFree();
         }

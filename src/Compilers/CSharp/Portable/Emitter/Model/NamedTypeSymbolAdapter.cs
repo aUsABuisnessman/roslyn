@@ -36,6 +36,9 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
         Cci.IGenericTypeInstanceReference,
         Cci.ISpecializedNestedTypeReference
     {
+        bool Cci.IDefinition.IsEncDeleted
+            => false;
+
         bool Cci.ITypeReference.IsEnum
         {
             get { return AdaptedNamedTypeSymbol.TypeKind == TypeKind.Enum; }
@@ -284,7 +287,7 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
             Debug.Assert(((Cci.ITypeReference)this).AsTypeDefinition(context) != null);
             NamedTypeSymbol baseType = AdaptedNamedTypeSymbol.BaseTypeNoUseSiteDiagnostics;
 
-            if (AdaptedNamedTypeSymbol.IsScriptClass)
+            if (AdaptedNamedTypeSymbol.IsScriptClass || AdaptedNamedTypeSymbol.IsExtension) // Tracked by https://github.com/dotnet/roslyn/issues/76130 : we should have checked the presence of System.Object
             {
                 // although submission and scripts semantically doesn't have a base we need to emit one into metadata:
                 Debug.Assert((object)baseType == null);
@@ -379,9 +382,18 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
 
             if (AdaptedNamedTypeSymbol is SourceMemberContainerTypeSymbol container)
             {
+                var interfaces = container.GetInterfacesToEmit();
+
                 foreach ((MethodSymbol body, MethodSymbol implemented) in container.GetSynthesizedExplicitImplementations(cancellationToken: default).MethodImpls)
                 {
                     Debug.Assert(body.ContainingType == (object)container);
+
+                    // Avoid emitting duplicate methodimpl entries (e.g., when the class implements the same interface twice with different nullability).
+                    if (!interfaces.Contains(implemented.ContainingType, SymbolEqualityComparer.ConsiderEverything))
+                    {
+                        continue;
+                    }
+
                     yield return new Microsoft.Cci.MethodImplementation(body.GetCciAdapter(), moduleBeingBuilt.TranslateOverriddenMethodReference(implemented, (CSharpSyntaxNode)context.SyntaxNode, context.Diagnostics));
                 }
             }
@@ -507,8 +519,6 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
                 {
                     case TypeKind.Enum:
                     case TypeKind.Delegate:
-                    //C# interfaces don't have fields so the flag doesn't really matter, but Dev10 omits it
-                    case TypeKind.Interface:
                         return false;
                 }
 
@@ -618,7 +628,7 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
             {
                 Debug.Assert((object)method != null);
 
-                if ((alwaysIncludeConstructors && method.MethodKind == MethodKind.Constructor) || method.GetCciAdapter().ShouldInclude(context))
+                if ((alwaysIncludeConstructors && method.MethodKind == MethodKind.Constructor) || method is SynthesizedExtensionMarker || method.GetCciAdapter().ShouldInclude(context))
                 {
                     yield return method.GetCciAdapter();
                 }
@@ -769,6 +779,11 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
         {
             get
             {
+                if (AdaptedNamedTypeSymbol.IsExtension)
+                {
+                    return AdaptedNamedTypeSymbol.ExtensionName;
+                }
+
                 string unsuffixedName = AdaptedNamedTypeSymbol.Name;
 
                 // CLR generally allows names with dots, however some APIs like IMetaDataImport
@@ -812,7 +827,7 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
             {
                 Debug.Assert((object)AdaptedNamedTypeSymbol.ContainingType == null && AdaptedNamedTypeSymbol.ContainingModule is SourceModuleSymbol);
 
-                return PEModuleBuilder.MemberVisibility(AdaptedNamedTypeSymbol) == Cci.TypeMemberVisibility.Public;
+                return AdaptedNamedTypeSymbol.MetadataVisibility == Cci.TypeMemberVisibility.Public;
             }
         }
 
@@ -848,7 +863,7 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
                 Debug.Assert((object)AdaptedNamedTypeSymbol.ContainingType != null);
                 CheckDefinitionInvariant();
 
-                return PEModuleBuilder.MemberVisibility(AdaptedNamedTypeSymbol);
+                return AdaptedNamedTypeSymbol.MetadataVisibility;
             }
         }
 
@@ -907,6 +922,8 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
 
         internal new NamedTypeSymbolAdapter GetCciAdapter()
         {
+            Debug.Assert(this is not SynthesizedPrivateImplementationDetailsType);
+
             if (_lazyAdapter is null)
             {
                 return InterlockedOperations.Initialize(ref _lazyAdapter, new NamedTypeSymbolAdapter(this));

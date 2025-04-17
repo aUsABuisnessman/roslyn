@@ -10,267 +10,351 @@ using Microsoft.CodeAnalysis.Test.Utilities;
 using Roslyn.Test.Utilities;
 using Xunit;
 
-namespace Microsoft.CodeAnalysis.Editor.CSharp.UnitTests.ChangeSignature
-{
-    [Trait(Traits.Feature, Traits.Features.ChangeSignature)]
-    public partial class ChangeSignatureTests : AbstractChangeSignatureTests
-    {
-        [Fact, WorkItem("https://github.com/dotnet/roslyn/issues/8333")]
-        public async Task TestNotInExpressionBody()
-        {
-            var markup = @"
-class Ext
-{
-    void Goo(int a, int b) => [||]0;
-}";
+namespace Microsoft.CodeAnalysis.Editor.CSharp.UnitTests.ChangeSignature;
 
-            await TestChangeSignatureViaCodeActionAsync(markup, expectedCodeAction: false);
-        }
-
-        [Fact, WorkItem("https://github.com/dotnet/roslyn/issues/1905")]
-        public async Task TestAfterSemicolonForInvocationInExpressionStatement_ViaCommand()
-        {
-            var markup = @"
-class Program
+[Trait(Traits.Feature, Traits.Features.ChangeSignature)]
+public sealed partial class ChangeSignatureTests : AbstractChangeSignatureTests
 {
-    static void Main(string[] args)
+    [Fact, WorkItem("https://github.com/dotnet/roslyn/issues/8333")]
+    public async Task TestNotInExpressionBody()
     {
-        M1(1, 2);$$
-        M2(1, 2, 3);
+        var markup = """
+            class Ext
+            {
+                void Goo(int a, int b) => [||]0;
+            }
+            """;
+
+        await TestChangeSignatureViaCodeActionAsync(markup, expectedCodeAction: false);
     }
 
-    static void M1(int x, int y) { }
-
-    static void M2(int x, int y, int z) { }
-}";
-            var expectedCode = @"
-class Program
-{
-    static void Main(string[] args)
+    [Fact, WorkItem("https://github.com/dotnet/roslyn/issues/1905")]
+    public async Task TestAfterSemicolonForInvocationInExpressionStatement_ViaCommand()
     {
-        M1(2, 1);
-        M2(1, 2, 3);
+        var markup = """
+            class Program
+            {
+                static void Main(string[] args)
+                {
+                    M1(1, 2);$$
+                    M2(1, 2, 3);
+                }
+
+                static void M1(int x, int y) { }
+
+                static void M2(int x, int y, int z) { }
+            }
+            """;
+        var expectedCode = """
+            class Program
+            {
+                static void Main(string[] args)
+                {
+                    M1(2, 1);
+                    M2(1, 2, 3);
+                }
+
+                static void M1(int y, int x) { }
+
+                static void M2(int x, int y, int z) { }
+            }
+            """;
+
+        await TestChangeSignatureViaCommandAsync(
+            LanguageNames.CSharp,
+            markup: markup,
+            updatedSignature: [1, 0],
+            expectedUpdatedInvocationDocumentCode: expectedCode);
     }
 
-    static void M1(int y, int x) { }
-
-    static void M2(int x, int y, int z) { }
-}";
-
-            await TestChangeSignatureViaCommandAsync(
-                LanguageNames.CSharp,
-                markup: markup,
-                updatedSignature: new[] { 1, 0 },
-                expectedUpdatedInvocationDocumentCode: expectedCode);
-        }
-
-        [Fact]
-        public async Task TestOnLambdaWithTwoDiscardParameters_ViaCommand()
-        {
-            var markup = @"
-class Program
-{
-    static void M()
+    [Fact, WorkItem("https://github.com/dotnet/roslyn/issues/75676")]
+    public async Task TestForPrimaryConstructor_ViaCommand()
     {
-        System.Func<int, string, int> f = $$(int _, string _) => 1;
-    }
-}";
-            var expectedCode = @"
-class Program
-{
-    static void M()
-    {
-        System.Func<int, string, int> f = (string _, int _) => 1;
-    }
-}";
+        var markup = """
+            public class Base {
+                public $$Base(string Item2, string Item1)
+                {
+                }
+            }
 
-            await TestChangeSignatureViaCommandAsync(
-                LanguageNames.CSharp,
-                markup: markup,
-                updatedSignature: new[] { 1, 0 },
-                expectedUpdatedInvocationDocumentCode: expectedCode);
-        }
+            public class Derived() : Base("Item2", "Item1")
+            {
+            }
+            """;
+        var expectedCode = """
+            public class Base {
+                public Base(string Item1, string Item2)
+                {
+                }
+            }
+            
+            public class Derived() : Base("Item1", "Item2")
+            {
+            }
+            """;
 
-        [Fact]
-        public async Task TestOnAnonymousMethodWithTwoParameters_ViaCommand()
-        {
-            var markup = @"
-class Program
-{
-    static void M()
-    {
-        System.Func<int, string, int> f = [||]delegate(int x, string y) { return 1; };
-    }
-}";
-            await TestMissingAsync(markup);
-        }
-
-        [Fact]
-        public async Task TestOnAnonymousMethodWithTwoDiscardParameters_ViaCommand()
-        {
-            var markup = @"
-class Program
-{
-    static void M()
-    {
-        System.Func<int, string, int> f = [||]delegate(int _, string _) { return 1; };
-    }
-}";
-            await TestMissingAsync(markup);
-        }
-
-        [Fact]
-        public async Task TestAfterSemicolonForInvocationInExpressionStatement_ViaCodeAction()
-        {
-            var markup = @"
-class Program
-{
-    static void Main(string[] args)
-    {
-        M1(1, 2);[||]
-        M2(1, 2, 3);
+        await TestChangeSignatureViaCommandAsync(
+            LanguageNames.CSharp,
+            markup: markup,
+            updatedSignature: [1, 0],
+            expectedUpdatedInvocationDocumentCode: expectedCode);
     }
 
-    static void M1(int x, int y) { }
-
-    static void M2(int x, int y, int z) { }
-}";
-
-            await TestMissingAsync(markup);
-        }
-
-        [Fact, WorkItem("https://github.com/dotnet/roslyn/issues/17309")]
-        public async Task TestNotInLeadingWhitespace()
-        {
-            var markup = @"
-class Ext
-{
-    [||]
-    void Goo(int a, int b)
+    [Fact, WorkItem("https://github.com/dotnet/roslyn/issues/75676")]
+    public async Task TestForPrimaryConstructorParamsArray_ViaCommand()
     {
-    };
-}";
-
-            await TestChangeSignatureViaCodeActionAsync(markup, expectedCodeAction: false);
+        var markup = """
+        public class Base {
+            public $$Base(string Item2, string Item1, params object[] items)
+            {
+                Console.WriteLine(items.Length);
+            }
         }
 
-        [Fact, WorkItem("https://github.com/dotnet/roslyn/issues/17309")]
-        public async Task TestNotInLeadingTrivia()
+        public class Derived() : Base("Item2", "Item1", 1, "test", true)
         {
-            var markup = @"
-class Ext
-{
-    // [||]
-    void Goo(int a, int b)
-    {
-    };
-}";
-
-            await TestChangeSignatureViaCodeActionAsync(markup, expectedCodeAction: false);
         }
-
-        [Fact, WorkItem("https://github.com/dotnet/roslyn/issues/17309")]
-        public async Task TestNotInLeadingTrivia2()
+        """;
+        var expectedCode = """
+        public class Base {
+            public Base(string Item1, string Item2, params object[] items)
+            {
+                Console.WriteLine(items.Length);
+            }
+        }
+        
+        public class Derived() : Base("Item1", "Item2", 1, "test", true)
         {
-            var markup = @"
-class Ext
-{
-    [||]//
-    void Goo(int a, int b)
-    {
-    };
-}";
-
-            await TestChangeSignatureViaCodeActionAsync(markup, expectedCodeAction: false);
         }
+        """;
 
-        [Fact, WorkItem("https://github.com/dotnet/roslyn/issues/17309")]
-        public async Task TestNotInLeadingDocComment()
-        {
-            var markup = @"
-class Ext
-{
-    /// [||]
-    void Goo(int a, int b)
+        await TestChangeSignatureViaCommandAsync(
+            LanguageNames.CSharp,
+            markup: markup,
+            updatedSignature: [1, 0, 2],
+            expectedUpdatedInvocationDocumentCode: expectedCode);
+    }
+
+    [Fact]
+    public async Task TestOnLambdaWithTwoDiscardParameters_ViaCommand()
     {
-    };
-}";
+        var markup = """
+            class Program
+            {
+                static void M()
+                {
+                    System.Func<int, string, int> f = $$(int _, string _) => 1;
+                }
+            }
+            """;
+        var expectedCode = """
+            class Program
+            {
+                static void M()
+                {
+                    System.Func<int, string, int> f = (string _, int _) => 1;
+                }
+            }
+            """;
 
-            await TestChangeSignatureViaCodeActionAsync(markup, expectedCodeAction: false);
-        }
+        await TestChangeSignatureViaCommandAsync(
+            LanguageNames.CSharp,
+            markup: markup,
+            updatedSignature: [1, 0],
+            expectedUpdatedInvocationDocumentCode: expectedCode);
+    }
 
-        [Fact, WorkItem("https://github.com/dotnet/roslyn/issues/17309")]
-        public async Task TestNotInLeadingDocComment2()
-        {
-            var markup = @"
-class Ext
-{
-    [||]///
-    void Goo(int a, int b)
+    [Fact]
+    public async Task TestOnAnonymousMethodWithTwoParameters_ViaCommand()
     {
-    };
-}";
+        var markup = """
+            class Program
+            {
+                static void M()
+                {
+                    System.Func<int, string, int> f = [||]delegate(int x, string y) { return 1; };
+                }
+            }
+            """;
+        await TestMissingAsync(markup);
+    }
 
-            await TestChangeSignatureViaCodeActionAsync(markup, expectedCodeAction: false);
-        }
-
-        [Fact, WorkItem("https://github.com/dotnet/roslyn/issues/17309")]
-        public async Task TestNotInLeadingAttributes1()
-        {
-            var markup = @"
-class Ext
-{
-    [||][X]
-    void Goo(int a, int b)
+    [Fact]
+    public async Task TestOnAnonymousMethodWithTwoDiscardParameters_ViaCommand()
     {
-    };
-}";
+        var markup = """
+            class Program
+            {
+                static void M()
+                {
+                    System.Func<int, string, int> f = [||]delegate(int _, string _) { return 1; };
+                }
+            }
+            """;
+        await TestMissingAsync(markup);
+    }
 
-            await TestChangeSignatureViaCodeActionAsync(markup, expectedCodeAction: false);
-        }
-
-        [Fact, WorkItem("https://github.com/dotnet/roslyn/issues/17309")]
-        public async Task TestNotInLeadingAttributes2()
-        {
-            var markup = @"
-class Ext
-{
-    [[||]X]
-    void Goo(int a, int b)
+    [Fact]
+    public async Task TestAfterSemicolonForInvocationInExpressionStatement_ViaCodeAction()
     {
-    };
-}";
+        var markup = """
+            class Program
+            {
+                static void Main(string[] args)
+                {
+                    M1(1, 2);[||]
+                    M2(1, 2, 3);
+                }
 
-            await TestChangeSignatureViaCodeActionAsync(markup, expectedCodeAction: false);
-        }
+                static void M1(int x, int y) { }
 
-        [Fact, WorkItem("https://github.com/dotnet/roslyn/issues/17309")]
-        public async Task TestNotInLeadingAttributes3()
-        {
-            var markup = @"
-class Ext
-{
-    [X][||]
-    void Goo(int a, int b)
+                static void M2(int x, int y, int z) { }
+            }
+            """;
+
+        await TestMissingAsync(markup);
+    }
+
+    [Fact, WorkItem("https://github.com/dotnet/roslyn/issues/17309")]
+    public async Task TestNotInLeadingWhitespace()
     {
-    };
-}";
+        var markup = """
+            class Ext
+            {
+                [||]
+                void Goo(int a, int b)
+                {
+                };
+            }
+            """;
 
-            await TestChangeSignatureViaCodeActionAsync(markup, expectedCodeAction: false);
-        }
+        await TestChangeSignatureViaCodeActionAsync(markup, expectedCodeAction: false);
+    }
 
-        [Fact, WorkItem("https://github.com/dotnet/roslyn/issues/17309")]
-        public async Task TestNotInConstraints()
-        {
-            var markup = @"
-class Ext
-{
-    void Goo<T>(int a, int b) where [||]T : class
+    [Fact, WorkItem("https://github.com/dotnet/roslyn/issues/17309")]
+    public async Task TestNotInLeadingTrivia()
     {
-    };
-}";
+        var markup = """
+            class Ext
+            {
+                // [||]
+                void Goo(int a, int b)
+                {
+                };
+            }
+            """;
 
-            await TestChangeSignatureViaCodeActionAsync(markup, expectedCodeAction: false);
-        }
+        await TestChangeSignatureViaCodeActionAsync(markup, expectedCodeAction: false);
+    }
+
+    [Fact, WorkItem("https://github.com/dotnet/roslyn/issues/17309")]
+    public async Task TestNotInLeadingTrivia2()
+    {
+        var markup = """
+            class Ext
+            {
+                [||]//
+                void Goo(int a, int b)
+                {
+                };
+            }
+            """;
+
+        await TestChangeSignatureViaCodeActionAsync(markup, expectedCodeAction: false);
+    }
+
+    [Fact, WorkItem("https://github.com/dotnet/roslyn/issues/17309")]
+    public async Task TestNotInLeadingDocComment()
+    {
+        var markup = """
+            class Ext
+            {
+                /// [||]
+                void Goo(int a, int b)
+                {
+                };
+            }
+            """;
+
+        await TestChangeSignatureViaCodeActionAsync(markup, expectedCodeAction: false);
+    }
+
+    [Fact, WorkItem("https://github.com/dotnet/roslyn/issues/17309")]
+    public async Task TestNotInLeadingDocComment2()
+    {
+        var markup = """
+            class Ext
+            {
+                [||]///
+                void Goo(int a, int b)
+                {
+                };
+            }
+            """;
+
+        await TestChangeSignatureViaCodeActionAsync(markup, expectedCodeAction: false);
+    }
+
+    [Fact, WorkItem("https://github.com/dotnet/roslyn/issues/17309")]
+    public async Task TestNotInLeadingAttributes1()
+    {
+        var markup = """
+            class Ext
+            {
+                [||][X]
+                void Goo(int a, int b)
+                {
+                };
+            }
+            """;
+
+        await TestChangeSignatureViaCodeActionAsync(markup, expectedCodeAction: false);
+    }
+
+    [Fact, WorkItem("https://github.com/dotnet/roslyn/issues/17309")]
+    public async Task TestNotInLeadingAttributes2()
+    {
+        var markup = """
+            class Ext
+            {
+                [[||]X]
+                void Goo(int a, int b)
+                {
+                };
+            }
+            """;
+
+        await TestChangeSignatureViaCodeActionAsync(markup, expectedCodeAction: false);
+    }
+
+    [Fact, WorkItem("https://github.com/dotnet/roslyn/issues/17309")]
+    public async Task TestNotInLeadingAttributes3()
+    {
+        var markup = """
+            class Ext
+            {
+                [X][||]
+                void Goo(int a, int b)
+                {
+                };
+            }
+            """;
+
+        await TestChangeSignatureViaCodeActionAsync(markup, expectedCodeAction: false);
+    }
+
+    [Fact, WorkItem("https://github.com/dotnet/roslyn/issues/17309")]
+    public async Task TestNotInConstraints()
+    {
+        var markup = """
+            class Ext
+            {
+                void Goo<T>(int a, int b) where [||]T : class
+                {
+                };
+            }
+            """;
+
+        await TestChangeSignatureViaCodeActionAsync(markup, expectedCodeAction: false);
     }
 }

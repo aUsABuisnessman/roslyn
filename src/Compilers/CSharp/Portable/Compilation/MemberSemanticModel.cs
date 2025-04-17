@@ -8,6 +8,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Threading;
 using Microsoft.CodeAnalysis.CSharp.Symbols;
@@ -101,6 +102,15 @@ namespace Microsoft.CodeAnalysis.CSharp
             get
             {
                 return _containingPublicSemanticModel.IgnoresAccessibility;
+            }
+        }
+
+        [Experimental(RoslynExperiments.NullableDisabledSemanticModel, UrlFormat = RoslynExperiments.NullableDisabledSemanticModel_Url)]
+        public sealed override bool NullableAnalysisIsDisabled
+        {
+            get
+            {
+                return _containingPublicSemanticModel.NullableAnalysisIsDisabled;
             }
         }
 
@@ -608,7 +618,7 @@ namespace Microsoft.CodeAnalysis.CSharp
             return null;
         }
 
-        public override ISymbol GetDeclaredSymbol(LocalFunctionStatementSyntax declarationSyntax, CancellationToken cancellationToken = default(CancellationToken))
+        public override IMethodSymbol GetDeclaredSymbol(LocalFunctionStatementSyntax declarationSyntax, CancellationToken cancellationToken = default(CancellationToken))
         {
             CheckSyntaxNode(declarationSyntax);
             return GetDeclaredLocalFunction(declarationSyntax).GetPublicSymbol();
@@ -950,9 +960,8 @@ namespace Microsoft.CodeAnalysis.CSharp
             // for arrays, that doesn't make sense for pointer arrays since object
             // (the type of System.Collections.IEnumerator.Current) isn't convertible
             // to pointer types.
-            if (enumeratorInfoOpt.ElementType.IsPointerType())
+            if (enumeratorInfoOpt.CurrentConversion is null && enumeratorInfoOpt.ElementType.IsPointerType())
             {
-                Debug.Assert(enumeratorInfoOpt.CurrentConversion is null);
                 return default(ForEachStatementInfo);
             }
 
@@ -1901,7 +1910,20 @@ done:
         /// </summary>
         protected void EnsureNullabilityAnalysisPerformedIfNecessary()
         {
+#if !DEBUG
+            // In release mode, when the semantic model options include DisableNullableAnalysis,
+            // we want to completely avoid doing any work for nullable analysis.
+#pragma warning disable RSEXPERIMENTAL001 // Internal usage of experimental API
+            if (NullableAnalysisIsDisabled)
+#pragma warning restore RSEXPERIMENTAL001
+            {
+                return;
+            }
+#endif
+
             bool isNullableAnalysisEnabled = IsNullableAnalysisEnabled();
+            // When 'isNullableAnalysisEnabled' is false but 'Compilation.IsNullableAnalysisEnabledAlways' is true here,
+            // we still need to perform a nullable analysis whose results are discarded for debug verification purposes.
             if (!isNullableAnalysisEnabled && !Compilation.IsNullableAnalysisEnabledAlways)
             {
                 return;
@@ -2030,7 +2052,12 @@ done:
         /// </summary>
         protected abstract void AnalyzeBoundNodeNullability(BoundNode boundRoot, Binder binder, DiagnosticBag diagnostics, bool createSnapshots);
 
-        protected abstract bool IsNullableAnalysisEnabled();
+        protected abstract bool IsNullableAnalysisEnabledCore();
+
+        protected bool IsNullableAnalysisEnabled()
+#pragma warning disable RSEXPERIMENTAL001 // internal use of experimental API
+            => !NullableAnalysisIsDisabled && IsNullableAnalysisEnabledCore();
+#pragma warning restore RSEXPERIMENTAL001
 #nullable disable
 
         /// <summary>
@@ -2239,11 +2266,12 @@ done:
             return node;
         }
 
+#nullable enable
         /// <summary>
         /// If the node is an expression, return the nearest parent node
         /// with semantic meaning. Otherwise return null.
         /// </summary>
-        protected CSharpSyntaxNode GetBindableParentNode(CSharpSyntaxNode node)
+        protected CSharpSyntaxNode? GetBindableParentNode(CSharpSyntaxNode node)
         {
             if (!(node is ExpressionSyntax))
             {
@@ -2251,7 +2279,7 @@ done:
             }
 
             // The node is an expression, but its parent is null
-            CSharpSyntaxNode parent = node.Parent;
+            CSharpSyntaxNode? parent = node.Parent;
             if (parent == null)
             {
                 // For speculative model, expression might be the root of the syntax tree, in which case it can have a null parent.
@@ -2289,17 +2317,25 @@ foundParent:;
             // the node is the instance associated with the method invocation.
             // In that case, return the invocation expression so that any conversion
             // of the receiver can be included in the resulting SemanticInfo.
-            if ((bindableParent.Kind() == SyntaxKind.SimpleMemberAccessExpression) && (bindableParent.Parent.Kind() == SyntaxKind.InvocationExpression))
+            switch (bindableParent)
             {
-                bindableParent = bindableParent.Parent;
-            }
-            else if (bindableParent.Kind() == SyntaxKind.ArrayType)
-            {
-                bindableParent = SyntaxFactory.GetStandaloneExpression((ArrayTypeSyntax)bindableParent);
+                case { RawKind: (int)SyntaxKind.SimpleMemberAccessExpression, Parent.RawKind: (int)SyntaxKind.InvocationExpression }:
+                    bindableParent = bindableParent.Parent;
+                    break;
+                case ArrayTypeSyntax arrayType:
+                    bindableParent = SyntaxFactory.GetStandaloneExpression(arrayType);
+                    break;
+                case { RawKind: (int)SyntaxKind.ComplexElementInitializerExpression }:
+                    // The { "a", "b" } node in a collection initializer is marked as compiler-generated, and will never
+                    // end up in the bound node map. We don't need the parent node for any calculations here, so just return
+                    // null to avoid rebinding the initializer (which can cause exponential binding problems, see EndToEndTests.LongInitializerList).
+                    bindableParent = null;
+                    break;
             }
 
             return bindableParent;
         }
+#nullable disable
 
         internal override Symbol RemapSymbolIfNecessaryCore(Symbol symbol)
         {
@@ -2379,9 +2415,8 @@ foundParent:;
                 return null;
             }
 
-            public override BoundStatement BindStatement(StatementSyntax node, BindingDiagnosticBag diagnostics)
+            private BoundStatement TryGetBoundStatementFromMap(StatementSyntax node)
             {
-                // Check the bound node cache to see if the statement was already bound.
                 if (node.SyntaxTree == _semanticModel.SyntaxTree)
                 {
                     BoundStatement synthesizedStatement = _semanticModel.GuardedGetSynthesizedStatementFromMap(node);
@@ -2391,15 +2426,23 @@ foundParent:;
                         return synthesizedStatement;
                     }
 
-                    BoundNode boundNode = TryGetBoundNodeFromMap(node);
-
-                    if (boundNode != null)
-                    {
-                        return (BoundStatement)boundNode;
-                    }
+                    return (BoundStatement)TryGetBoundNodeFromMap(node);
                 }
 
-                BoundStatement statement = base.BindStatement(node, diagnostics);
+                return null;
+            }
+
+            public override BoundStatement BindStatement(StatementSyntax node, BindingDiagnosticBag diagnostics)
+            {
+                // Check the bound node cache to see if the statement was already bound.
+                BoundStatement statement = TryGetBoundStatementFromMap(node);
+
+                if (statement != null)
+                {
+                    return statement;
+                }
+
+                statement = base.BindStatement(node, diagnostics);
 
                 // Synthesized statements are not added to the _guardedNodeMap, we cache them explicitly here in  
                 // _lazyGuardedSynthesizedStatementsMap
@@ -2479,7 +2522,25 @@ foundParent:;
 
                 return block;
             }
+
+            protected override bool TryGetBoundElseIfStatement(IfStatementSyntax node, out BoundStatement alternative)
+            {
+                alternative = TryGetBoundStatementFromMap(node);
+
+                if (alternative is not null)
+                {
+                    Debug.Assert(alternative is BoundIfStatement);
+                    alternative = WrapWithVariablesIfAny(node, alternative);
+                    return true;
+                }
+
+                return base.TryGetBoundElseIfStatement(node, out alternative);
+            }
         }
 
+        internal sealed class MemberSemanticBindingCounter
+        {
+            internal int BindCount;
+        }
     }
 }

@@ -30,7 +30,7 @@ namespace Microsoft.CodeAnalysis
             _filterFunc = filterFunc;
         }
 
-        public ISyntaxInputBuilder GetBuilder(StateTableStore table, object key, bool trackIncrementalSteps, string? name, IEqualityComparer<T>? comparer) => new Builder(this, key, table, trackIncrementalSteps, name, comparer ?? EqualityComparer<T>.Default);
+        public ISyntaxInputBuilder GetBuilder(StateTableStore table, object key, bool trackIncrementalSteps, string? name, IEqualityComparer<T> comparer) => new Builder(this, key, table, trackIncrementalSteps, name, comparer);
 
         private sealed class Builder : ISyntaxInputBuilder
         {
@@ -48,7 +48,7 @@ namespace Microsoft.CodeAnalysis
                 _name = name;
                 _comparer = comparer;
                 _key = key;
-                _filterTable = table.GetStateTableOrEmpty<SyntaxNode>(_owner._filterKey).ToBuilder(stepName: null, trackIncrementalSteps);
+                _filterTable = table.GetStateTableOrEmpty<SyntaxNode>(_owner._filterKey).ToBuilder(stepName: null, trackIncrementalSteps, equalityComparer: Roslyn.Utilities.ReferenceEqualityComparer.Instance);
                 _transformTable = table.GetStateTableOrEmpty<T>(_key).ToBuilder(_name, trackIncrementalSteps, _comparer);
             }
 
@@ -84,21 +84,31 @@ namespace Microsoft.CodeAnalysis
                     {
                         var stopwatch = SharedStopwatch.StartNew();
                         var nodes = getFilteredNodes(root.Value, _owner._filterFunc, cancellationToken);
-                        entry = _filterTable.AddEntries(nodes, state, stopwatch.Elapsed, noInputStepsStepInfo, state);
+
+                        if (state != EntryState.Modified || !_filterTable.TryModifyEntries(nodes, stopwatch.Elapsed, noInputStepsStepInfo, state, out entry))
+                        {
+                            entry = _filterTable.AddEntries(nodes, state, stopwatch.Elapsed, noInputStepsStepInfo, state);
+                        }
                     }
 
                     // now, using the obtained syntax nodes, run the transform
-                    foreach (SyntaxNode node in entry)
+                    for (var i = 0; i < entry.Count; i++)
                     {
+                        if (entry.GetState(i) == EntryState.Removed)
+                        {
+                            _transformTable.TryRemoveEntries(TimeSpan.Zero, noInputStepsStepInfo);
+                            continue;
+                        }
+
                         var stopwatch = SharedStopwatch.StartNew();
-                        var value = new GeneratorSyntaxContext(node, model, _owner._syntaxHelper);
+                        var value = new GeneratorSyntaxContext(entry.GetItem(i), model, _owner._syntaxHelper);
                         var transformed = _owner._transformFunc(value, cancellationToken);
 
                         // The SemanticModel we provide to GeneratorSyntaxContext is never guaranteed to be the same between runs,
                         // so we never consider the input to the transform as cached.
                         var transformInputState = state == EntryState.Cached ? EntryState.Modified : state;
 
-                        if (transformInputState == EntryState.Added || !_transformTable.TryModifyEntry(transformed, _comparer, stopwatch.Elapsed, noInputStepsStepInfo, transformInputState))
+                        if (transformInputState == EntryState.Added || !_transformTable.TryModifyEntry(transformed, stopwatch.Elapsed, noInputStepsStepInfo, transformInputState))
                         {
                             _transformTable.AddEntry(transformed, EntryState.Added, stopwatch.Elapsed, noInputStepsStepInfo, EntryState.Added);
                         }

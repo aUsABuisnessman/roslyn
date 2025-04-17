@@ -6,71 +6,86 @@ using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.ComponentModel.Composition;
-using System.Threading;
-using System.Threading.Tasks;
-using Microsoft.CodeAnalysis.Editor.Shared.Utilities;
+using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.ErrorReporting;
 using Microsoft.CodeAnalysis.Host.Mef;
 using Microsoft.CodeAnalysis.Options;
 using Microsoft.Internal.VisualStudio.Shell.Interop;
 using Microsoft.VisualStudio.Settings;
-using IAsyncServiceProvider = Microsoft.VisualStudio.Shell.IAsyncServiceProvider;
-using SAsyncServiceProvider = Microsoft.VisualStudio.Shell.Interop.SAsyncServiceProvider;
+using Microsoft.VisualStudio.Shell;
+using Microsoft.VisualStudio.Shell.Interop;
 
-namespace Microsoft.VisualStudio.LanguageServices.Options
+namespace Microsoft.VisualStudio.LanguageServices.Options;
+
+[Export(typeof(IOptionPersisterProvider))]
+[Export(typeof(VisualStudioOptionPersisterProvider))]
+internal sealed class VisualStudioOptionPersisterProvider : IOptionPersisterProvider
 {
-    [Export(typeof(IOptionPersisterProvider))]
-    [Export(typeof(VisualStudioOptionPersisterProvider))]
-    internal sealed class VisualStudioOptionPersisterProvider : IOptionPersisterProvider
+    private readonly IServiceProvider _serviceProvider;
+    private readonly Lazy<ILegacyGlobalOptionService> _legacyGlobalOptions;
+
+    // maps config name to a read fallback:
+    private readonly ImmutableDictionary<string, Lazy<IVisualStudioStorageReadFallback, OptionNameMetadata>> _readFallbacks;
+
+    // Ensure only one persister instance is created (even in the face of parallel requests for the value)
+    // because the constructor registers global event handler callbacks.
+    private readonly Lazy<IOptionPersister> _lazyPersister;
+
+    [ImportingConstructor]
+    [Obsolete(MefConstruction.ImportingConstructorMessage, error: true)]
+    public VisualStudioOptionPersisterProvider(
+        [Import(typeof(SVsServiceProvider))] IServiceProvider serviceProvider,
+        [ImportMany] IEnumerable<Lazy<IVisualStudioStorageReadFallback, OptionNameMetadata>> readFallbacks,
+        Lazy<ILegacyGlobalOptionService> legacyGlobalOptions)
     {
-        private readonly IAsyncServiceProvider _serviceProvider;
-        private readonly ILegacyGlobalOptionService _legacyGlobalOptions;
+        _serviceProvider = serviceProvider;
+        _legacyGlobalOptions = legacyGlobalOptions;
+        _readFallbacks = readFallbacks.ToImmutableDictionary(item => item.Metadata.ConfigName, item => item);
+        _lazyPersister = new Lazy<IOptionPersister>(() => CreatePersister());
+    }
 
-        // maps config name to a read fallback:
-        private readonly ImmutableDictionary<string, Lazy<IVisualStudioStorageReadFallback, OptionNameMetadata>> _readFallbacks;
+    public IOptionPersister GetOrCreatePersister()
+        => _lazyPersister.Value;
 
-        private VisualStudioOptionPersister? _lazyPersister;
+    private IOptionPersister CreatePersister()
+    {
+        var settingsManager = GetFreeThreadedService<SVsSettingsPersistenceManager, ISettingsManager>();
+        Assumes.Present(settingsManager);
 
-        [ImportingConstructor]
-        [Obsolete(MefConstruction.ImportingConstructorMessage, error: true)]
-        public VisualStudioOptionPersisterProvider(
-            [Import(typeof(SAsyncServiceProvider))] IAsyncServiceProvider serviceProvider,
-            [ImportMany] IEnumerable<Lazy<IVisualStudioStorageReadFallback, OptionNameMetadata>> readFallbacks,
-            IThreadingContext threadingContext,
-            ILegacyGlobalOptionService legacyGlobalOptions)
+        var localRegistry = GetFreeThreadedService<SLocalRegistry, ILocalRegistry4>();
+        Assumes.Present(localRegistry);
+
+        var featureFlags = GetFreeThreadedService<SVsFeatureFlags, IVsFeatureFlags>();
+
+        return new VisualStudioOptionPersister(
+            new VisualStudioSettingsOptionPersister(RefreshOption, _readFallbacks, settingsManager),
+            LocalUserRegistryOptionPersister.Create(localRegistry),
+            new FeatureFlagPersister(featureFlags));
+    }
+
+    private void RefreshOption(OptionKey2 optionKey, object? newValue)
+    {
+        if (_legacyGlobalOptions.Value.GlobalOptions.RefreshOption(optionKey, newValue))
         {
-            _serviceProvider = serviceProvider;
-            _legacyGlobalOptions = legacyGlobalOptions;
-            _readFallbacks = readFallbacks.ToImmutableDictionary(item => item.Metadata.ConfigName, item => item);
+            // We may be updating the values of internally defined public options.
+            // Update solution snapshots of all workspaces to reflect the new values.
+            _legacyGlobalOptions.Value.UpdateRegisteredWorkspaces();
         }
+    }
 
-        public async ValueTask<IOptionPersister> GetOrCreatePersisterAsync(CancellationToken cancellationToken)
-            => _lazyPersister ??=
-                new VisualStudioOptionPersister(
-                    new VisualStudioSettingsOptionPersister(RefreshOption, _readFallbacks, await TryGetServiceAsync<SVsSettingsPersistenceManager, ISettingsManager>().ConfigureAwait(true)),
-                    await LocalUserRegistryOptionPersister.CreateAsync(_serviceProvider).ConfigureAwait(false),
-                    new FeatureFlagPersister(await TryGetServiceAsync<SVsFeatureFlags, IVsFeatureFlags>().ConfigureAwait(false)));
-
-        private void RefreshOption(OptionKey2 optionKey, object? newValue)
+    /// <summary>
+    /// Returns a service without doing a transition to the UI thread to cast the service to the interface type. This should only be called for services that are
+    /// well-understood to be castable off the UI thread, either because they are managed or free-threaded COM.
+    /// </summary>
+    private I? GetFreeThreadedService<T, I>() where I : class
+    {
+        try
         {
-            if (_legacyGlobalOptions.GlobalOptions.RefreshOption(optionKey, newValue))
-            {
-                // We may be updating the values of internally defined public options.
-                // Update solution snapshots of all workspaces to reflect the new values.
-                _legacyGlobalOptions.UpdateRegisteredWorkspaces();
-            }
+            return (I?)_serviceProvider.GetService(typeof(T));
         }
-
-        private async ValueTask<I?> TryGetServiceAsync<T, I>() where I : class
+        catch (Exception e) when (FatalError.ReportAndPropagate(e))
         {
-            try
-            {
-                return (I?)await _serviceProvider.GetServiceAsync(typeof(T)).ConfigureAwait(false);
-            }
-            catch (Exception e) when (FatalError.ReportAndCatch(e))
-            {
-                return null;
-            }
+            throw ExceptionUtilities.Unreachable();
         }
     }
 }

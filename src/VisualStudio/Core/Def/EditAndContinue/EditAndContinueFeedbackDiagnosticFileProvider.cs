@@ -13,12 +13,10 @@ using System.Linq;
 using System.Threading;
 using Microsoft.CodeAnalysis.Host.Mef;
 using Microsoft.Internal.VisualStudio.Shell.Embeddable.Feedback;
-using Microsoft.VisualStudio.TextManager.Interop;
 using Newtonsoft.Json.Linq;
 using Task = System.Threading.Tasks.Task;
 using Roslyn.Utilities;
 using Microsoft.CodeAnalysis.EditAndContinue;
-using Microsoft.VisualStudio.Shell;
 
 namespace Microsoft.VisualStudio.LanguageServices.EditAndContinue;
 
@@ -39,7 +37,7 @@ internal sealed class EditAndContinueFeedbackDiagnosticFileProvider : IFeedbackD
     /// Watching the file is currently the only way to detect the feedback session.
     /// </summary>
     private readonly string _vsFeedbackSemaphoreFullPath;
-    private readonly FileSystemWatcher _vsFeedbackSemaphoreFileWatcher;
+    private readonly FileSystemWatcher? _vsFeedbackSemaphoreFileWatcher;
 
     private readonly int _vsProcessId;
     private readonly DateTime _vsProcessStartTime;
@@ -64,6 +62,12 @@ internal sealed class EditAndContinueFeedbackDiagnosticFileProvider : IFeedbackD
         _tempDir = Path.GetTempPath();
         var vsFeedbackTempDir = Path.Combine(_tempDir, VSFeedbackSemaphoreDir);
         _vsFeedbackSemaphoreFullPath = Path.Combine(vsFeedbackTempDir, VSFeedbackSemaphoreFileName);
+
+        // Directory may not exist in scenarios such as Razor integration tests
+        if (!Directory.Exists(vsFeedbackTempDir))
+        {
+            return;
+        }
 
         _vsFeedbackSemaphoreFileWatcher = new FileSystemWatcher(vsFeedbackTempDir, VSFeedbackSemaphoreFileName);
         _vsFeedbackSemaphoreFileWatcher.Created += (_, _) => OnFeedbackSemaphoreCreatedOrChanged();
@@ -93,7 +97,9 @@ internal sealed class EditAndContinueFeedbackDiagnosticFileProvider : IFeedbackD
         => Path.Combine(Path.Combine(_tempDir, $"EnC_{_vsProcessId}", ZipFileName));
 
     public IReadOnlyCollection<string> GetFiles()
-        => new[] { GetZipFilePath() };
+        => _vsFeedbackSemaphoreFileWatcher is null
+           ? []
+           : (IReadOnlyCollection<string>)([GetZipFilePath()]);
 
     private void OnFeedbackSemaphoreCreatedOrChanged()
     {

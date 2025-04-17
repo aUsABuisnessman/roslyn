@@ -130,6 +130,12 @@ Namespace Microsoft.CodeAnalysis.VisualBasic.Symbols.Retargeting
             End Get
         End Property
 
+        Friend Overrides ReadOnly Property HasCompilerLoweringPreserveAttribute As Boolean
+            Get
+                Return _underlyingType.HasCompilerLoweringPreserveAttribute
+            End Get
+        End Property
+
         Friend Overrides ReadOnly Property IsExtensibleInterfaceNoUseSiteDiagnostics As Boolean
             Get
                 Return _underlyingType.IsExtensibleInterfaceNoUseSiteDiagnostics
@@ -546,5 +552,12 @@ Namespace Microsoft.CodeAnalysis.VisualBasic.Symbols.Retargeting
                 Yield RetargetingTranslator.Retarget(underlying)
             Next
         End Function
+
+        Friend Overrides ReadOnly Property HasAnyDeclaredRequiredMembers As Boolean
+            Get
+                Debug.Assert(Not _underlyingType.HasAnyDeclaredRequiredMembers)
+                Return False
+            End Get
+        End Property
     End Class
 End Namespace

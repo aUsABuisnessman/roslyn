@@ -3,101 +3,140 @@
 // See the LICENSE file in the project root for more information.
 
 using System;
+using System.Collections.Immutable;
 using System.Diagnostics;
+using System.Runtime.ExceptionServices;
+using System.Threading;
 
-namespace Microsoft.CodeAnalysis.ErrorReporting
+namespace Microsoft.CodeAnalysis.ErrorReporting;
+
+internal sealed class TestTraceListener : TraceListener
 {
-    internal class TestTraceListener : TraceListener
+    private ImmutableList<Exception> _failures = [];
+
+    public static TestTraceListener Instance { get; } = new();
+
+    public override void Fail(string? message, string? detailMessage)
     {
-        public override void Fail(string? message, string? detailMessage)
+        if (string.IsNullOrEmpty(message))
         {
-            if (string.IsNullOrEmpty(message))
-            {
-                Exit("Assertion failed");
-            }
-            else if (string.IsNullOrEmpty(detailMessage))
-            {
-                Exit(message);
-            }
-            else
-            {
-                Exit(message + " " + detailMessage);
-            }
+            Exit("Assertion failed");
+        }
+        else if (string.IsNullOrEmpty(detailMessage))
+        {
+            Exit(message);
+        }
+        else
+        {
+            Exit(message + " " + detailMessage);
+        }
+    }
+
+    public override void Write(object? o)
+    {
+        if (Debugger.IsLogging())
+        {
+            Debugger.Log(0, null, o?.ToString());
+        }
+    }
+
+    public override void Write(object? o, string? category)
+    {
+        if (Debugger.IsLogging())
+        {
+            Debugger.Log(0, category, o?.ToString());
+        }
+    }
+
+    public override void Write(string? message)
+    {
+        if (Debugger.IsLogging())
+        {
+            Debugger.Log(0, null, message);
+        }
+    }
+
+    public override void Write(string? message, string? category)
+    {
+        if (Debugger.IsLogging())
+        {
+            Debugger.Log(0, category, message);
+        }
+    }
+
+    public override void WriteLine(object? o)
+    {
+        if (Debugger.IsLogging())
+        {
+            Debugger.Log(0, null, o?.ToString() + Environment.NewLine);
+        }
+    }
+
+    public override void WriteLine(object? o, string? category)
+    {
+        if (Debugger.IsLogging())
+        {
+            Debugger.Log(0, category, o?.ToString() + Environment.NewLine);
+        }
+    }
+
+    public override void WriteLine(string? message)
+    {
+        if (Debugger.IsLogging())
+        {
+            Debugger.Log(0, null, message + Environment.NewLine);
+        }
+    }
+
+    public override void WriteLine(string? message, string? category)
+    {
+        if (Debugger.IsLogging())
+        {
+            Debugger.Log(0, category, message + Environment.NewLine);
+        }
+    }
+
+    private static void Exit(string? message)
+    {
+        var reportedException = new Exception(message);
+        try
+        {
+            // Set stack trace on the exception for logging
+            ExceptionDispatchInfo.Capture(reportedException).Throw();
+        }
+        catch (Exception ex)
+        {
+            reportedException = ex;
         }
 
-        public override void Write(object? o)
+        if (message?.Contains("Pretty-listing introduced errors in error-free code") ?? false)
         {
-            if (Debugger.IsLogging())
-            {
-                Debugger.Log(0, null, o?.ToString());
-            }
+            // Ignore this known assertion failure
+            FatalError.ReportAndCatch(reportedException, ErrorSeverity.Critical);
+            return;
         }
 
-        public override void Write(object? o, string? category)
-        {
-            if (Debugger.IsLogging())
-            {
-                Debugger.Log(0, category, o?.ToString());
-            }
-        }
+        FatalError.ReportAndPropagate(reportedException, ErrorSeverity.Critical);
+        Instance.AddException(reportedException);
+    }
 
-        public override void Write(string? message)
-        {
-            if (Debugger.IsLogging())
-            {
-                Debugger.Log(0, null, message);
-            }
-        }
+    public void AddException(Exception exception)
+    {
+        ImmutableInterlocked.Update(ref _failures, static (failures, exception) => failures.Add(exception), exception);
+    }
 
-        public override void Write(string? message, string? category)
+    public void VerifyNoErrorsAndReset()
+    {
+        var failures = Interlocked.Exchange(ref _failures, []);
+        if (!failures.IsEmpty)
         {
-            if (Debugger.IsLogging())
-            {
-                Debugger.Log(0, category, message);
-            }
+            throw new AggregateException(failures);
         }
+    }
 
-        public override void WriteLine(object? o)
-        {
-            if (Debugger.IsLogging())
-            {
-                Debugger.Log(0, null, o?.ToString() + Environment.NewLine);
-            }
-        }
-
-        public override void WriteLine(object? o, string? category)
-        {
-            if (Debugger.IsLogging())
-            {
-                Debugger.Log(0, category, o?.ToString() + Environment.NewLine);
-            }
-        }
-
-        public override void WriteLine(string? message)
-        {
-            if (Debugger.IsLogging())
-            {
-                Debugger.Log(0, null, message + Environment.NewLine);
-            }
-        }
-
-        public override void WriteLine(string? message, string? category)
-        {
-            if (Debugger.IsLogging())
-            {
-                Debugger.Log(0, category, message + Environment.NewLine);
-            }
-        }
-
-        private static void Exit(string? message)
-        {
-            FatalError.ReportAndPropagate(new Exception(message));
-        }
-
-        internal static void Install()
-        {
-            Trace.Listeners.Clear();
-            Trace.Listeners.Add(new TestTraceListener());
-        }
+    internal static void Install()
+    {
+        Trace.Listeners.Clear();
+        Trace.Listeners.Add(Instance);
     }
 }

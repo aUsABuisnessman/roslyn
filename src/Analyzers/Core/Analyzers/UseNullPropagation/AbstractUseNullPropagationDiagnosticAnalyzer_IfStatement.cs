@@ -31,10 +31,10 @@ internal abstract partial class AbstractUseNullPropagationDiagnosticAnalyzer<
     {
         var cancellationToken = context.CancellationToken;
         var option = context.GetAnalyzerOptions().PreferNullPropagation;
-        if (!option.Value)
+        if (!option.Value || ShouldSkipAnalysis(context, option.Notification))
             return;
 
-        var syntaxFacts = GetSyntaxFacts();
+        var syntaxFacts = this.SyntaxFacts;
         var ifStatement = (TIfStatementSyntax)context.Node;
 
         // The true-statement if the if-statement has to be a statement of the form `<expr1>.Name(...)`;
@@ -94,11 +94,9 @@ internal abstract partial class AbstractUseNullPropagationDiagnosticAnalyzer<
         context.ReportDiagnostic(DiagnosticHelper.Create(
             Descriptor,
             ifStatement.GetFirstToken().GetLocation(),
-            option.Notification.Severity,
-            ImmutableArray.Create(
-                ifStatement.GetLocation(),
-                trueStatement.GetLocation(),
-                whenPartMatch.GetLocation()),
+            option.Notification,
+            context.Options,
+            [ifStatement.GetLocation(), trueStatement.GetLocation(), whenPartMatch.GetLocation()],
             properties));
     }
 }

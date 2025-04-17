@@ -13,10 +13,10 @@ Namespace Microsoft.CodeAnalysis.Editor.VisualBasic.UnitTests.Classification
     Public Class SyntacticClassifierTests
         Inherits AbstractVisualBasicClassifierTests
 
-        Protected Overrides Async Function GetClassificationSpansAsync(code As String, span As TextSpan, parseOptions As ParseOptions, testHost As TestHost) As Task(Of ImmutableArray(Of ClassifiedSpan))
+        Protected Overrides Async Function GetClassificationSpansAsync(code As String, spans As ImmutableArray(Of TextSpan), parseOptions As ParseOptions, testHost As TestHost) As Task(Of ImmutableArray(Of ClassifiedSpan))
             Using workspace = CreateWorkspace(code, testHost)
                 Dim document = workspace.CurrentSolution.Projects.First().Documents.First()
-                Return Await GetSyntacticClassificationsAsync(document, span)
+                Return Await GetSyntacticClassificationsAsync(document, spans)
             End Using
         End Function
 
@@ -2666,6 +2666,90 @@ End Class"
                 XmlDoc.Delimiter(">"),
                 Keyword("Class"),
                 [Class]("Bar"),
+                Keyword("End"),
+                Keyword("Class"))
+        End Function
+
+        <Theory>
+        <InlineData(TestHost.InProcess, "True", False)>
+        <InlineData(TestHost.OutOfProcess, "True", False)>
+        <InlineData(TestHost.InProcess, "Return", True)>
+        <InlineData(TestHost.OutOfProcess, "Return", True)>
+        <InlineData(TestHost.InProcess, "All", False)>
+        <InlineData(TestHost.OutOfProcess, "All", False)>
+        Public Async Function TestXmlDocComment_LangWordAttribute_Keywords(testHost As TestHost, langword As String, isControlKeyword As Boolean) As Task
+            Dim code =
+$"''' <summary>
+''' <see langword=""{langword}"" />
+''' </summary>
+Class MyClass
+End Class"
+
+            Await TestAsync(code,
+                testHost,
+                XmlDoc.Delimiter("'''"),
+                XmlDoc.Text(" "),
+                XmlDoc.Delimiter("<"),
+                XmlDoc.Name("summary"),
+                XmlDoc.Delimiter(">"),
+                XmlDoc.Delimiter("'''"),
+                XmlDoc.Text(" "),
+                XmlDoc.Delimiter("<"),
+                XmlDoc.Name("see"),
+                XmlDoc.Name(" "),
+                XmlDoc.AttributeName("langword"),
+                XmlDoc.Delimiter("="),
+                XmlDoc.AttributeQuotes(""""),
+                If(isControlKeyword, ControlKeyword(langword), Keyword(langword)),
+                XmlDoc.AttributeQuotes(""""),
+                XmlDoc.AttributeQuotes(" "),
+                XmlDoc.Delimiter("/>"),
+                XmlDoc.Delimiter("'''"),
+                XmlDoc.Text(" "),
+                XmlDoc.Delimiter("</"),
+                XmlDoc.Name("summary"),
+                XmlDoc.Delimiter(">"),
+                Keyword("Class"),
+                [Class]("MyClass"),
+                Keyword("End"),
+                Keyword("Class"))
+        End Function
+
+        <Theory, CombinatorialData>
+        Public Async Function TestXmlDocComment_LangWordAttribute_NonKeyword(testHost As TestHost) As Task
+            Dim code =
+"''' <summary>
+''' <see langword=""MyWord"" />
+''' </summary>
+Class MyClass
+End Class"
+
+            Await TestAsync(code,
+                testHost,
+                XmlDoc.Delimiter("'''"),
+                XmlDoc.Text(" "),
+                XmlDoc.Delimiter("<"),
+                XmlDoc.Name("summary"),
+                XmlDoc.Delimiter(">"),
+                XmlDoc.Delimiter("'''"),
+                XmlDoc.Text(" "),
+                XmlDoc.Delimiter("<"),
+                XmlDoc.Name("see"),
+                XmlDoc.Name(" "),
+                XmlDoc.AttributeName("langword"),
+                XmlDoc.Delimiter("="),
+                XmlDoc.AttributeQuotes(""""),
+                XmlDoc.AttributeValue("MyWord"),
+                XmlDoc.AttributeQuotes(""""),
+                XmlDoc.AttributeQuotes(" "),
+                XmlDoc.Delimiter("/>"),
+                XmlDoc.Delimiter("'''"),
+                XmlDoc.Text(" "),
+                XmlDoc.Delimiter("</"),
+                XmlDoc.Name("summary"),
+                XmlDoc.Delimiter(">"),
+                Keyword("Class"),
+                [Class]("MyClass"),
                 Keyword("End"),
                 Keyword("Class"))
         End Function

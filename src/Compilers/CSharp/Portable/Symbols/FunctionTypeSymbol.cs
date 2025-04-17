@@ -99,6 +99,8 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
 
         public override bool IsValueType => false;
 
+        internal sealed override ParameterSymbol? ExtensionParameter => null;
+
         public override TypeKind TypeKind => TypeKindInternal.FunctionType;
 
         public override bool IsRefLikeType => false;
@@ -139,7 +141,7 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
 
         public override ImmutableArray<NamedTypeSymbol> GetTypeMembers() => throw ExceptionUtilities.Unreachable();
 
-        public override ImmutableArray<NamedTypeSymbol> GetTypeMembers(string name) => throw ExceptionUtilities.Unreachable();
+        public override ImmutableArray<NamedTypeSymbol> GetTypeMembers(ReadOnlyMemory<char> name) => throw ExceptionUtilities.Unreachable();
 
         protected override ISymbol CreateISymbol() => throw ExceptionUtilities.Unreachable();
 
@@ -195,6 +197,12 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
         }
 
         internal override IEnumerable<(MethodSymbol Body, MethodSymbol Implemented)> SynthesizedInterfaceMethodImpls() => throw ExceptionUtilities.Unreachable();
+
+        internal override bool HasInlineArrayAttribute(out int length)
+        {
+            length = 0;
+            return false;
+        }
 
         internal override bool Equals(TypeSymbol t2, TypeCompareKind compareKind)
         {

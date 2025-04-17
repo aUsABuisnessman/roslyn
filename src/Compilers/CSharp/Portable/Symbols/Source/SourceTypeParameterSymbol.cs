@@ -4,6 +4,7 @@
 
 #nullable disable
 
+using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Diagnostics;
@@ -19,7 +20,7 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
     /// <summary>
     /// Base class for type and method type parameters.
     /// </summary>
-    internal abstract class SourceTypeParameterSymbolBase : TypeParameterSymbol, IAttributeTargetSymbol
+    internal abstract class SourceTypeParameterSymbol : TypeParameterSymbol, IAttributeTargetSymbol
     {
         private readonly ImmutableArray<SyntaxReference> _syntaxRefs;
         private readonly ImmutableArray<Location> _locations;
@@ -30,7 +31,7 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
         private CustomAttributesBag<CSharpAttributeData> _lazyCustomAttributesBag;
         private TypeParameterBounds _lazyBounds = TypeParameterBounds.Unset;
 
-        protected SourceTypeParameterSymbolBase(string name, int ordinal, ImmutableArray<Location> locations, ImmutableArray<SyntaxReference> syntaxRefs)
+        protected SourceTypeParameterSymbol(string name, int ordinal, ImmutableArray<Location> locations, ImmutableArray<SyntaxReference> syntaxRefs)
         {
             Debug.Assert(!syntaxRefs.IsEmpty);
 
@@ -130,7 +131,7 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
                     var implementingPart = sourceMethod.SourcePartialImplementation;
                     if ((object)implementingPart != null)
                     {
-                        var typeParameter = (SourceTypeParameterSymbolBase)implementingPart.TypeParameters[_ordinal];
+                        var typeParameter = (SourceTypeParameterSymbol)implementingPart.TypeParameters[_ordinal];
                         mergedAttributesBuilder.AddRange(typeParameter.MergedAttributeDeclarationSyntaxLists);
                     }
                 }
@@ -189,7 +190,7 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
                 }
                 else
                 {
-                    var typeParameter = (SourceTypeParameterSymbolBase)sourceMethod.SourcePartialDefinition.TypeParameters[_ordinal];
+                    var typeParameter = (SourceTypeParameterSymbol)sourceMethod.SourcePartialDefinition.TypeParameters[_ordinal];
                     CustomAttributesBag<CSharpAttributeData> attributesBag = typeParameter.GetAttributesBag();
 
                     lazyAttributesStored = Interlocked.CompareExchange(ref _lazyCustomAttributesBag, attributesBag, null) == null;
@@ -259,7 +260,7 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
             }
 
             var args = ConstraintsHelper.CheckConstraintsArgsBoxed.Allocate(
-                DeclaringCompilation, new TypeConversions(ContainingAssembly.CorLibrary), _locations[0], diagnostics);
+                DeclaringCompilation, ContainingAssembly.CorLibrary.TypeConversions, _locations[0], diagnostics);
             foreach (var constraintType in constraintTypes)
             {
                 if (!diagnostics.ReportUseSite(constraintType.Type, args.Args.Location))
@@ -345,8 +346,9 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
             return this.ContainingAssembly.GetSpecialType(SpecialType.System_Object);
         }
 
-        internal override void ForceComplete(SourceLocation locationOpt, CancellationToken cancellationToken)
+        internal override void ForceComplete(SourceLocation locationOpt, Predicate<Symbol> filter, CancellationToken cancellationToken)
         {
+            Debug.Assert(filter == null);
             while (true)
             {
                 cancellationToken.ThrowIfCancellationRequested();
@@ -380,7 +382,7 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
             }
         }
 
-        internal override void AddSynthesizedAttributes(PEModuleBuilder moduleBuilder, ref ArrayBuilder<SynthesizedAttributeData> attributes)
+        internal override void AddSynthesizedAttributes(PEModuleBuilder moduleBuilder, ref ArrayBuilder<CSharpAttributeData> attributes)
         {
             base.AddSynthesizedAttributes(moduleBuilder, ref attributes);
 
@@ -454,12 +456,12 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
         }
     }
 
-    internal sealed class SourceTypeParameterSymbol : SourceTypeParameterSymbolBase
+    internal sealed class SourceTypeTypeParameterSymbol : SourceTypeParameterSymbol
     {
         private readonly SourceNamedTypeSymbol _owner;
         private readonly VarianceKind _varianceKind;
 
-        public SourceTypeParameterSymbol(SourceNamedTypeSymbol owner, string name, int ordinal, VarianceKind varianceKind, ImmutableArray<Location> locations, ImmutableArray<SyntaxReference> syntaxRefs)
+        public SourceTypeTypeParameterSymbol(SourceNamedTypeSymbol owner, string name, int ordinal, VarianceKind varianceKind, ImmutableArray<Location> locations, ImmutableArray<SyntaxReference> syntaxRefs)
             : base(name, ordinal, locations, syntaxRefs)
         {
             _owner = owner;
@@ -499,6 +501,15 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
             {
                 var constraints = this.GetConstraintKinds();
                 return (constraints & TypeParameterConstraintKind.AllValueTypeKinds) != 0;
+            }
+        }
+
+        public override bool AllowsRefLikeType
+        {
+            get
+            {
+                var constraints = this.GetConstraintKinds();
+                return (constraints & TypeParameterConstraintKind.AllowByRefLike) != 0;
             }
         }
 
@@ -591,20 +602,19 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
         }
     }
 
-    internal sealed class SourceMethodTypeParameterSymbol : SourceTypeParameterSymbolBase
+    internal abstract class SourceMethodTypeParameterSymbol : SourceTypeParameterSymbol
     {
-        private readonly SourceMethodSymbol _owner;
-
-        public SourceMethodTypeParameterSymbol(SourceMethodSymbol owner, string name, int ordinal, ImmutableArray<Location> locations, ImmutableArray<SyntaxReference> syntaxRefs)
+        protected SourceMethodTypeParameterSymbol(string name, int ordinal, ImmutableArray<Location> locations, ImmutableArray<SyntaxReference> syntaxRefs)
             : base(name, ordinal, locations, syntaxRefs)
         {
-            _owner = owner;
         }
 
-        internal override void AddDeclarationDiagnostics(BindingDiagnosticBag diagnostics)
-            => _owner.AddDeclarationDiagnostics(diagnostics);
+        public abstract SourceMethodSymbol Owner { get; }
 
-        public override TypeParameterKind TypeParameterKind
+        internal sealed override void AddDeclarationDiagnostics(BindingDiagnosticBag diagnostics)
+            => Owner.AddDeclarationDiagnostics(diagnostics);
+
+        public sealed override TypeParameterKind TypeParameterKind
         {
             get
             {
@@ -612,10 +622,50 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
             }
         }
 
-        public override Symbol ContainingSymbol
+        public sealed override Symbol ContainingSymbol
         {
-            get { return _owner; }
+            get { return Owner; }
         }
+
+        public abstract override bool HasConstructorConstraint { get; }
+
+        public abstract override bool HasValueTypeConstraint { get; }
+
+        public abstract override bool AllowsRefLikeType { get; }
+
+        public abstract override bool IsValueTypeFromConstraintTypes { get; }
+
+        public abstract override bool HasReferenceTypeConstraint { get; }
+
+        public abstract override bool IsReferenceTypeFromConstraintTypes { get; }
+
+        public abstract override bool HasNotNullConstraint { get; }
+
+        internal abstract override bool? ReferenceTypeConstraintIsNullable { get; }
+
+        internal abstract override bool? IsNotNullable { get; }
+
+        public abstract override bool HasUnmanagedTypeConstraint { get; }
+
+        protected sealed override ImmutableArray<TypeParameterSymbol> ContainerTypeParameters
+        {
+            get { return Owner.TypeParameters; }
+        }
+
+        protected abstract override TypeParameterBounds ResolveBounds(ConsList<TypeParameterSymbol> inProgress, BindingDiagnosticBag diagnostics);
+    }
+
+    internal sealed class SourceNotOverridingMethodTypeParameterSymbol : SourceMethodTypeParameterSymbol
+    {
+        private readonly SourceMethodSymbol _owner;
+
+        public SourceNotOverridingMethodTypeParameterSymbol(SourceMethodSymbol owner, string name, int ordinal, ImmutableArray<Location> locations, ImmutableArray<SyntaxReference> syntaxRefs)
+            : base(name, ordinal, locations, syntaxRefs)
+        {
+            _owner = owner;
+        }
+
+        public override SourceMethodSymbol Owner => _owner;
 
         public override bool HasConstructorConstraint
         {
@@ -632,6 +682,15 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
             {
                 var constraints = this.GetConstraintKinds();
                 return (constraints & TypeParameterConstraintKind.AllValueTypeKinds) != 0;
+            }
+        }
+
+        public override bool AllowsRefLikeType
+        {
+            get
+            {
+                var constraints = this.GetConstraintKinds();
+                return (constraints & TypeParameterConstraintKind.AllowByRefLike) != 0;
             }
         }
 
@@ -700,11 +759,6 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
                 var constraints = this.GetConstraintKinds();
                 return (constraints & TypeParameterConstraintKind.Unmanaged) != 0;
             }
-        }
-
-        protected override ImmutableArray<TypeParameterSymbol> ContainerTypeParameters
-        {
-            get { return _owner.TypeParameters; }
         }
 
         protected override TypeParameterBounds ResolveBounds(ConsList<TypeParameterSymbol> inProgress, BindingDiagnosticBag diagnostics)
@@ -843,7 +897,7 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
     /// <remarks>
     /// Exists to copy constraints from the corresponding type parameter of an overridden method.
     /// </remarks>
-    internal sealed class SourceOverridingMethodTypeParameterSymbol : SourceTypeParameterSymbolBase
+    internal sealed class SourceOverridingMethodTypeParameterSymbol : SourceMethodTypeParameterSymbol
     {
         private readonly OverriddenMethodTypeParameterMapBase _map;
 
@@ -853,22 +907,9 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
             _map = map;
         }
 
-        public SourceOrdinaryMethodSymbol Owner
+        public override SourceMethodSymbol Owner
         {
             get { return _map.OverridingMethod; }
-        }
-
-        public override TypeParameterKind TypeParameterKind
-        {
-            get
-            {
-                return TypeParameterKind.Method;
-            }
-        }
-
-        public override Symbol ContainingSymbol
-        {
-            get { return this.Owner; }
         }
 
         public override bool HasConstructorConstraint
@@ -886,6 +927,15 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
             {
                 var typeParameter = this.OverriddenTypeParameter;
                 return ((object)typeParameter != null) && typeParameter.HasValueTypeConstraint;
+            }
+        }
+
+        public override bool AllowsRefLikeType
+        {
+            get
+            {
+                var typeParameter = this.OverriddenTypeParameter;
+                return ((object)typeParameter != null) && typeParameter.AllowsRefLikeType;
             }
         }
 
@@ -948,11 +998,6 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
                 var typeParameter = this.OverriddenTypeParameter;
                 return ((object)typeParameter != null) && typeParameter.HasUnmanagedTypeConstraint;
             }
-        }
-
-        protected override ImmutableArray<TypeParameterSymbol> ContainerTypeParameters
-        {
-            get { return this.Owner.TypeParameters; }
         }
 
         protected override TypeParameterBounds ResolveBounds(ConsList<TypeParameterSymbol> inProgress, BindingDiagnosticBag diagnostics)

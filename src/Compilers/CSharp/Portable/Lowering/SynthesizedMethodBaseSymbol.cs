@@ -36,21 +36,25 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
                                               string name,
                                               DeclarationModifiers declarationModifiers,
                                               bool isIterator)
-            : base(containingType, syntaxReference, location, isIterator)
+            : base(containingType, syntaxReference, location, isIterator,
+                   (declarationModifiers, MakeFlags(
+                                                    methodKind: MethodKind.Ordinary,
+                                                    refKind: baseMethod.RefKind,
+                                                    declarationModifiers,
+                                                    returnsVoid: baseMethod.ReturnsVoid,
+                                                    returnsVoidIsSet: true,
+                                                    isExtensionMethod: false,
+                                                    isNullableAnalysisEnabled: false,
+                                                    isVarArg: baseMethod.IsVararg,
+                                                    isExpressionBodied: false,
+                                                    isExplicitInterfaceImplementation: false,
+                                                    hasThisInitializer: false)))
         {
             Debug.Assert((object)containingType != null);
             Debug.Assert((object)baseMethod != null);
 
             this.BaseMethod = baseMethod;
             _name = name;
-
-            this.MakeFlags(
-                methodKind: MethodKind.Ordinary,
-                declarationModifiers: declarationModifiers,
-                returnsVoid: baseMethod.ReturnsVoid,
-                isExtensionMethod: false,
-                isNullableAnalysisEnabled: false,
-                isMetadataVirtualIgnoringModifiers: false);
         }
 
         protected void AssignTypeMapAndTypeParameters(TypeMap typeMap, ImmutableArray<TypeParameterSymbol> typeParameters)
@@ -66,22 +70,6 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
         protected override void MethodChecks(BindingDiagnosticBag diagnostics)
         {
             // TODO: move more functionality into here, making these symbols more lazy
-        }
-
-        internal override void AddSynthesizedAttributes(PEModuleBuilder moduleBuilder, ref ArrayBuilder<SynthesizedAttributeData> attributes)
-        {
-            base.AddSynthesizedAttributes(moduleBuilder, ref attributes);
-
-            // do not generate attributes for members of compiler-generated types:
-            if (ContainingType.IsImplicitlyDeclared)
-            {
-                return;
-            }
-
-            var compilation = this.DeclaringCompilation;
-
-            AddSynthesizedAttribute(ref attributes,
-                compilation.TrySynthesizeAttribute(WellKnownMember.System_Runtime_CompilerServices_CompilerGeneratedAttribute__ctor));
         }
 
         public sealed override ImmutableArray<TypeParameterSymbol> TypeParameters
@@ -196,11 +184,6 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
 
 #nullable disable
 
-        public sealed override RefKind RefKind
-        {
-            get { return this.BaseMethod.RefKind; }
-        }
-
         public sealed override TypeWithAnnotations ReturnTypeWithAnnotations
         {
             get { return this.TypeMap.SubstituteType(this.BaseMethod.OriginalDefinition.ReturnTypeWithAnnotations); }
@@ -212,11 +195,6 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
 
         public sealed override FlowAnalysisAnnotations FlowAnalysisAnnotations => FlowAnalysisAnnotations.None;
 
-        public sealed override bool IsVararg
-        {
-            get { return this.BaseMethod.IsVararg; }
-        }
-
         public sealed override string Name
         {
             get { return _name; }
@@ -225,11 +203,6 @@ namespace Microsoft.CodeAnalysis.CSharp.Symbols
         public sealed override bool IsImplicitlyDeclared
         {
             get { return true; }
-        }
-
-        internal override bool IsExpressionBodied
-        {
-            get { return false; }
         }
     }
 }

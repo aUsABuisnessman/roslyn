@@ -7,6 +7,7 @@
 using System;
 using System.Collections.Immutable;
 using System.Diagnostics;
+using System.Runtime.CompilerServices;
 using Microsoft.CodeAnalysis.Collections;
 using Microsoft.CodeAnalysis.CSharp.Symbols;
 using Roslyn.Utilities;
@@ -20,6 +21,12 @@ namespace Microsoft.CodeAnalysis.CSharp
         private readonly ushort _arity;
         private readonly DeclarationModifiers _modifiers;
         private readonly ImmutableArray<SingleTypeDeclaration> _children;
+
+        /// <summary>
+        /// Stored as a <see cref="StrongBox{T}"/> so that we can point weak-references at this instance and attempt to
+        /// reuse it across edits if the original hasn't been GC'ed.
+        /// </summary>
+        private readonly StrongBox<ImmutableSegmentedHashSet<string>> _memberNames;
 
         /// <summary>
         /// Any special attributes we may be referencing directly as an attribute on this type or
@@ -60,6 +67,11 @@ namespace Microsoft.CodeAnalysis.CSharp
             HasRequiredMembers = 1 << 10,
 
             HasPrimaryConstructor = 1 << 11,
+
+            /// <summary>
+            /// Set when <see cref="Syntax.ExtensionDeclarationSyntax"/> is present.
+            /// </summary>            
+            AnyExtensionDeclarationSyntax = 1 << 12,
         }
 
         internal SingleTypeDeclaration(
@@ -70,7 +82,7 @@ namespace Microsoft.CodeAnalysis.CSharp
             TypeDeclarationFlags declFlags,
             SyntaxReference syntaxReference,
             SourceLocation nameLocation,
-            ImmutableSegmentedHashSet<string> memberNames,
+            StrongBox<ImmutableSegmentedHashSet<string>> memberNames,
             ImmutableArray<SingleTypeDeclaration> children,
             ImmutableArray<Diagnostic> diagnostics,
             QuickAttributes quickAttributes)
@@ -81,7 +93,7 @@ namespace Microsoft.CodeAnalysis.CSharp
             _kind = kind;
             _arity = (ushort)arity;
             _modifiers = modifiers;
-            MemberNames = memberNames;
+            _memberNames = memberNames;
             _children = children;
             _flags = declFlags;
             QuickAttributes = quickAttributes;
@@ -119,13 +131,21 @@ namespace Microsoft.CodeAnalysis.CSharp
             }
         }
 
-        public ImmutableSegmentedHashSet<string> MemberNames { get; }
+        public StrongBox<ImmutableSegmentedHashSet<string>> MemberNames => _memberNames;
 
         public bool AnyMemberHasExtensionMethodSyntax
         {
             get
             {
                 return (_flags & TypeDeclarationFlags.AnyMemberHasExtensionMethodSyntax) != 0;
+            }
+        }
+
+        public bool AnyExtensionDeclarationSyntax
+        {
+            get
+            {
+                return (_flags & TypeDeclarationFlags.AnyExtensionDeclarationSyntax) != 0;
             }
         }
 
@@ -253,9 +273,9 @@ namespace Microsoft.CodeAnalysis.CSharp
                     return false;
                 }
 
-                if (thisDecl._kind == DeclarationKind.Enum || thisDecl._kind == DeclarationKind.Delegate)
+                if (thisDecl._kind is DeclarationKind.Enum or DeclarationKind.Delegate or DeclarationKind.Extension)
                 {
-                    // oh, so close, but enums and delegates cannot be partial
+                    // oh, so close, but enums, delegates and extensions cannot be partial
                     return false;
                 }
 

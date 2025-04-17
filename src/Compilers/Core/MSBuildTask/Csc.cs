@@ -197,7 +197,7 @@ namespace Microsoft.CodeAnalysis.BuildTasks
         /// <summary>
         /// Fills the provided CommandLineBuilderExtension with those switches and other information that can go into a response file.
         /// </summary>
-        protected internal override void AddResponseFileCommands(CommandLineBuilderExtension commandLine)
+        protected override void AddResponseFileCommands(CommandLineBuilderExtension commandLine)
         {
             commandLine.AppendSwitchIfNotNull("/lib:", AdditionalLibPaths, ",");
             commandLine.AppendPlusOrMinusSwitch("/unsafe", _store, nameof(AllowUnsafeBlocks));
@@ -241,6 +241,7 @@ namespace Microsoft.CodeAnalysis.BuildTasks
             }
 
             AddReferencesToCommandLine(commandLine, References);
+            AddInterceptorsNamespaces(commandLine, InterceptorsNamespaces, InterceptorsPreviewNamespaces);
 
             base.AddResponseFileCommands(commandLine);
 
@@ -278,6 +279,34 @@ namespace Microsoft.CodeAnalysis.BuildTasks
         #endregion
 
         internal override RequestLanguage Language => RequestLanguage.CSharpCompile;
+
+        internal static void AddInterceptorsNamespaces(CommandLineBuilderExtension commandLine, string? interceptorsNamespaces, string? interceptorsPreviewNamespaces)
+        {
+            var interceptorsNamespacesIsNullOrEmpty = string.IsNullOrEmpty(interceptorsNamespaces);
+            var interceptorsPreviewNamespacesIsNullOrEmpty = string.IsNullOrEmpty(interceptorsPreviewNamespaces);
+            if (interceptorsNamespacesIsNullOrEmpty && interceptorsPreviewNamespacesIsNullOrEmpty)
+            {
+                return;
+            }
+
+            var featureValue = interceptorsNamespacesIsNullOrEmpty ? interceptorsPreviewNamespaces
+                : interceptorsPreviewNamespacesIsNullOrEmpty ? interceptorsNamespaces
+                : $"{interceptorsNamespaces};{interceptorsPreviewNamespaces}";
+            commandLine.AppendSwitchIfNotNull("/features:", $"InterceptorsNamespaces={featureValue}");
+        }
+
+        public string? InterceptorsNamespaces
+        {
+            set { _store[nameof(InterceptorsNamespaces)] = value; }
+            get { return (string?)_store[nameof(InterceptorsNamespaces)]; }
+        }
+
+        /// <remarks>Alias for <see cref="InterceptorsNamespaces"/>.</remarks>
+        public string? InterceptorsPreviewNamespaces
+        {
+            set { _store[nameof(InterceptorsPreviewNamespaces)] = value; }
+            get { return (string?)_store[nameof(InterceptorsPreviewNamespaces)]; }
+        }
 
         /// <summary>
         /// The C# compiler (starting with Whidbey) supports assembly aliasing for references.
@@ -325,7 +354,7 @@ namespace Microsoft.CodeAnalysis.BuildTasks
                 if (string.IsNullOrEmpty(aliasString))
                 {
                     // If there was no "Alias" attribute, just add this as a global reference.
-                    commandLine.AppendSwitchIfNotNull(switchName, reference.ItemSpec);
+                    appendGlobalReference(reference.ItemSpec);
                 }
                 else
                 {
@@ -353,7 +382,7 @@ namespace Microsoft.CodeAnalysis.BuildTasks
                         // error out on those.  The ones we're checking for here are the ones
                         // that could seriously screw up the command-line parsing or could
                         // allow parameter injection.
-                        if (trimmedAlias.IndexOfAny(new char[] { ',', ' ', ';', '"' }) != -1)
+                        if (trimmedAlias.AsSpan().IndexOfAny([' ', ';', '"', '=']) != -1)
                         {
                             throw Utilities.GetLocalizedArgumentException(
                                 ErrorString.Csc_AssemblyAliasContainsIllegalCharacters,
@@ -365,7 +394,7 @@ namespace Microsoft.CodeAnalysis.BuildTasks
                         // give it an alias on the command-line.
                         if (string.Compare("global", trimmedAlias, StringComparison.OrdinalIgnoreCase) == 0)
                         {
-                            commandLine.AppendSwitchIfNotNull(switchName, reference.ItemSpec);
+                            appendGlobalReference(reference.ItemSpec);
                         }
                         else
                         {
@@ -374,6 +403,27 @@ namespace Microsoft.CodeAnalysis.BuildTasks
                             //      /reference:Goo=System.Xml.dll
                             commandLine.AppendSwitchAliased(switchName, trimmedAlias, reference.ItemSpec);
                         }
+                    }
+                }
+
+                void appendGlobalReference(string? itemSpec)
+                {
+                    if (itemSpec is null)
+                    {
+                        return;
+                    }
+
+                    var index = itemSpec.AsSpan().IndexOfAny(['"', '=']);
+                    if (index >= 0 && itemSpec[index] == '=')
+                    {
+                        // The presence of a = in the name before the first quote will cause the
+                        // compiler to treat this as an alias reference instead of a global
+                        // reference. Force quote the reference to ensure it's treated as global reference.
+                        commandLine.AppendSwitchForceQuoted(switchName, reference.ItemSpec);
+                    }
+                    else
+                    {
+                        commandLine.AppendSwitchIfNotNull(switchName, reference.ItemSpec);
                     }
                 }
             }
@@ -415,7 +465,7 @@ namespace Microsoft.CodeAnalysis.BuildTasks
                     // the outgoing string.
                     if (finalDefineConstants.Length > 0)
                     {
-                        finalDefineConstants.Append(";");
+                        finalDefineConstants.Append(';');
                     }
 
                     finalDefineConstants.Append(singleIdentifier);
@@ -459,7 +509,6 @@ namespace Microsoft.CodeAnalysis.BuildTasks
         ///     thing for csc.exe, the IDE compiler cannot support it.  In this situation
         ///     the return value will also be false.
         /// </summary>
-        /// <owner>RGoel</owner>
         private bool InitializeHostCompiler(ICscHostObject cscHostObject)
         {
             bool success;
@@ -659,7 +708,6 @@ namespace Microsoft.CodeAnalysis.BuildTasks
         ///     NoActionReturnSuccess           Host compiler was already up-to-date, and we're done.
         ///     NoActionReturnFailure           Bad parameters were passed into the task.
         /// </summary>
-        /// <owner>RGoel</owner>
         protected override HostObjectInitializationStatus InitializeHostObject()
         {
             if (HostObject != null)
@@ -746,7 +794,6 @@ namespace Microsoft.CodeAnalysis.BuildTasks
         /// This method will get called during Execute() if a host object has been passed into the Csc
         /// task.  Returns true if the compilation succeeded, otherwise false.  
         /// </summary>
-        /// <owner>RGoel</owner>
         protected override bool CallHostObjectToExecute()
         {
             Debug.Assert(HostObject != null, "We should not be here if the host object has not been set.");

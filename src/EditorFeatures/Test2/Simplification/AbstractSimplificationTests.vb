@@ -24,8 +24,8 @@ Namespace Microsoft.CodeAnalysis.Editor.UnitTests.Simplification
             End Using
         End Function
 
-        Protected Shared Async Function CreateTestWorkspaceAsync(definition As XElement, Optional csharpParseOptions As CSharpParseOptions = Nothing) As Task(Of TestWorkspace)
-            Dim workspace = TestWorkspace.Create(definition)
+        Protected Shared Async Function CreateTestWorkspaceAsync(definition As XElement, Optional csharpParseOptions As CSharpParseOptions = Nothing) As Task(Of EditorTestWorkspace)
+            Dim workspace = EditorTestWorkspace.Create(definition)
 
             If csharpParseOptions IsNot Nothing Then
                 For Each project In workspace.CurrentSolution.Projects
@@ -36,11 +36,11 @@ Namespace Microsoft.CodeAnalysis.Editor.UnitTests.Simplification
             Return workspace
         End Function
 
-        Protected Shared Function SimplifyAsync(workspace As TestWorkspace) As Task(Of Document)
+        Protected Shared Function SimplifyAsync(workspace As EditorTestWorkspace) As Task(Of Document)
             Return SimplifyAsync(workspace, Nothing)
         End Function
 
-        Private Shared Async Function SimplifyAsync(workspace As TestWorkspace, options As OptionsCollection) As Task(Of Document)
+        Private Shared Async Function SimplifyAsync(workspace As EditorTestWorkspace, options As OptionsCollection) As Task(Of Document)
             Dim hostDocument = workspace.Documents.Single()
 
             Dim spansToAddSimplifierAnnotation = hostDocument.AnnotatedSpans.Where(Function(kvp) kvp.Key.StartsWith("Simplify", StringComparison.Ordinal))
@@ -62,7 +62,7 @@ Namespace Microsoft.CodeAnalysis.Editor.UnitTests.Simplification
         End Function
 
         Private Shared Async Function SimplifyAsync(
-            workspace As TestWorkspace,
+            workspace As EditorTestWorkspace,
             listOfLabelToAddSimplifierAnnotationSpans As IEnumerable(Of KeyValuePair(Of String, ImmutableArray(Of TextSpan))),
             explicitSpansToSimplifyWithin As ImmutableArray(Of TextSpan),
             options As OptionsCollection) As Task(Of Document)
@@ -131,7 +131,7 @@ Namespace Microsoft.CodeAnalysis.Editor.UnitTests.Simplification
         End Function
 
         Private Shared Function GetExpressionSyntaxWithSameSpan(node As SyntaxNode, spanEnd As Integer) As SyntaxNode
-            While Not node Is Nothing And Not node.Parent Is Nothing And node.Parent.SpanStart = node.SpanStart
+            While node IsNot Nothing And node.Parent IsNot Nothing And node.Parent.SpanStart = node.SpanStart
                 node = node.Parent
                 If node.Span.End = spanEnd Then
                     Exit While

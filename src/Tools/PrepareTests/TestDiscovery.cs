@@ -10,10 +10,13 @@ using System.Linq;
 using System.IO.Pipes;
 using System.Threading.Tasks;
 using System.Threading;
+using System.Text;
 
 namespace PrepareTests;
 internal class TestDiscovery
 {
+    private static readonly object s_lock = new();
+
     public static bool RunDiscovery(string repoRootDirectory, string dotnetPath, bool isUnix)
     {
         var binDirectory = Path.Combine(repoRootDirectory, "artifacts", "bin");
@@ -32,76 +35,80 @@ internal class TestDiscovery
                 ? dotnetFrameworkWorker
                 : dotnetCoreWorker;
 
-            success &= RunWorker(dotnetPath, workerPath, assembly);
+            var (workerSucceeded, output) = RunWorker(dotnetPath, workerPath, assembly);
+            lock (s_lock)
+            {
+                Console.WriteLine(output);
+                success &= workerSucceeded;
+            }
         });
         stopwatch.Stop();
 
-        Console.WriteLine($"Discovered tests in {stopwatch.Elapsed}");
+        if (success)
+        {
+            Console.WriteLine($"Discovered tests in {stopwatch.Elapsed}");
+        }
+        else
+        {
+            Console.WriteLine($"Test discovery failed");
+        }
+
         return success;
+    }
+
+    static (string tfm, string configuration) GetTfmAndConfiguration()
+    {
+        var dir = Path.GetDirectoryName(typeof(TestDiscovery).Assembly.Location);
+        var tfm = Path.GetFileName(dir)!;
+        var configuration = Path.GetFileName(Path.GetDirectoryName(dir))!;
+        return (tfm, configuration);
     }
 
     static (string dotnetCoreWorker, string dotnetFrameworkWorker) GetWorkers(string binDirectory)
     {
+        var (tfm, configuration) = GetTfmAndConfiguration();
         var testDiscoveryWorkerFolder = Path.Combine(binDirectory, "TestDiscoveryWorker");
-        var configuration = Directory.Exists(Path.Combine(testDiscoveryWorkerFolder, "Debug")) ? "Debug" : "Release";
-        return (Path.Combine(testDiscoveryWorkerFolder, configuration, "net7.0", "TestDiscoveryWorker.dll"),
+        return (Path.Combine(testDiscoveryWorkerFolder, configuration, tfm, "TestDiscoveryWorker.dll"),
                 Path.Combine(testDiscoveryWorkerFolder, configuration, "net472", "TestDiscoveryWorker.exe"));
     }
 
-    static bool RunWorker(string dotnetPath, string pathToWorker, string pathToAssembly)
+    static (bool Succeeded, string Output) RunWorker(string dotnetPath, string pathToWorker, string pathToAssembly)
     {
-        var success = true;
-        var pipeClient = new Process();
-        var arguments = new List<string>();
+        var worker = new Process();
+        var arguments = new StringBuilder();
         if (pathToWorker.EndsWith("dll"))
         {
-            arguments.Add(pathToWorker);
-            pipeClient.StartInfo.FileName = dotnetPath;
+            arguments.Append($"exec {pathToWorker}");
+            worker.StartInfo.FileName = dotnetPath;
         }
         else
         {
-            pipeClient.StartInfo.FileName = pathToWorker;
+            worker.StartInfo.FileName = pathToWorker;
         }
 
-        using (var pipeServer = new AnonymousPipeServerStream(PipeDirection.Out, HandleInheritability.Inheritable))
-        {
-            // Pass the client process a handle to the server.
-            arguments.Add(pipeServer.GetClientHandleAsString());
-            pipeClient.StartInfo.Arguments = string.Join(" ", arguments);
-            pipeClient.StartInfo.UseShellExecute = false;
-            pipeClient.Start();
+        var pathToOutput = Path.Combine(Path.GetDirectoryName(pathToAssembly)!, "testlist.json");
+        arguments.Append($" --assembly {pathToAssembly} --out {pathToOutput}");
 
-            pipeServer.DisposeLocalCopyOfClientHandle();
+        var output = new StringBuilder();
+        worker.StartInfo.Arguments = arguments.ToString();
+        worker.StartInfo.UseShellExecute = false;
+        worker.StartInfo.RedirectStandardOutput = true;
+        worker.OutputDataReceived += (sender, e) => output.Append(e.Data);
+        worker.Start();
+        worker.BeginOutputReadLine();
+        worker.WaitForExit();
+        var success = worker.ExitCode == 0;
+        worker.Close();
 
-            try
-            {
-                // Read user input and send that to the client process.
-                using var sw = new StreamWriter(pipeServer);
-                sw.AutoFlush = true;
-                // Send a 'sync message' and wait for client to receive it.
-                sw.WriteLine("ASSEMBLY");
-                // Send the console input to the client process.
-                sw.WriteLine(pathToAssembly);
-            }
-            // Catch the IOException that is raised if the pipe is broken
-            // or disconnected.
-            catch (Exception e)
-            {
-                Console.Error.WriteLine($"Error: {e.Message}");
-                success = false;
-            }
-        }
-
-        pipeClient.WaitForExit();
-        success &= pipeClient.ExitCode == 0;
-        pipeClient.Close();
-        return success;
+        return (success, output.ToString());
     }
 
     private static List<string> GetAssemblies(string binDirectory, bool isUnix)
     {
-        var unitTestAssemblies = Directory.GetFiles(binDirectory, "*.UnitTests.dll", SearchOption.AllDirectories).Where(ShouldInclude);
-        return unitTestAssemblies.ToList();
+        var unitTestAssemblies = Directory.GetFiles(binDirectory, "*UnitTests.dll", SearchOption.AllDirectories);
+        var integrationTestAssemblies = Directory.GetFiles(binDirectory, "*IntegrationTests.dll", SearchOption.AllDirectories);
+        var assemblies = unitTestAssemblies.Concat(integrationTestAssemblies).Where(ShouldInclude);
+        return assemblies.ToList();
 
         bool ShouldInclude(string path)
         {

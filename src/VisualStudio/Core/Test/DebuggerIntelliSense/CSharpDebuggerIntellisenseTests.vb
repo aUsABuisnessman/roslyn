@@ -2,6 +2,8 @@
 ' The .NET Foundation licenses this file to you under the MIT license.
 ' See the LICENSE file in the project root for more information.
 
+Imports Microsoft.CodeAnalysis
+Imports Microsoft.CodeAnalysis.Completion
 Imports Microsoft.CodeAnalysis.Test.Utilities
 Imports Roslyn.Test.Utilities
 
@@ -314,6 +316,52 @@ Namespace Microsoft.VisualStudio.LanguageServices.UnitTests.DebuggerIntelliSense
         End Function
 
         <WpfFact>
+        Public Async Function SingleStatementBlock() As Task
+            Dim text = <Workspace>
+                           <Project Language="C#" CommonReferences="true">
+                               <Document>class Program
+{
+    static void Main()
+    {
+        for (int variable1 = 0; variable1 &lt; 10; variable1++)
+            [|Console.Write(0);|]
+        int variable2 = 0;
+    }
+}</Document>
+                           </Project>
+                       </Workspace>
+
+            Using state = TestState.CreateCSharpTestState(text, False)
+                state.SendTypeChars("variable")
+                Await state.WaitForAsynchronousOperationsAsync()
+                Await state.AssertCompletionItemsContainAll("variable1", "variable2")
+            End Using
+        End Function
+
+        <WpfFact>
+        Public Async Function SingleStatementBlockInvokeCompletion() As Task
+            Dim text = <Workspace>
+                           <Project Language="C#" CommonReferences="true">
+                               <Document>class Program
+{
+    static void Main()
+    {
+        for (int variable1 = 0; variable1 &lt; 10; variable1++)
+            [|Console.Write(0);|]
+        int variable2 = 0;
+    }
+}</Document>
+                           </Project>
+                       </Workspace>
+
+            Using state = TestState.CreateCSharpTestState(text, False)
+                Await state.WaitForAsynchronousOperationsAsync()
+                state.SendInvokeCompletionList()
+                Await state.AssertCompletionItemsContainAll("variable1")
+            End Using
+        End Function
+
+        <WpfFact>
         Public Async Function SignatureHelpInParameterizedConstructor() As Task
             Dim text = <Workspace>
                            <Project Language="C#" CommonReferences="true">
@@ -415,8 +463,7 @@ Namespace Microsoft.VisualStudio.LanguageServices.UnitTests.DebuggerIntelliSense
             End Using
         End Function
 
-        <WorkItem("http://vstfdevdiv:8080/DevDiv2/DevDiv/_workitems/edit/531165")>
-        <WpfFact>
+        <WpfFact, WorkItem("http://vstfdevdiv:8080/DevDiv2/DevDiv/_workitems/edit/531165")>
         Public Async Function ClassDesigner1() As Task
             Dim text = <Workspace>
                            <Project Language="C#" CommonReferences="true">
@@ -443,8 +490,7 @@ Namespace Microsoft.VisualStudio.LanguageServices.UnitTests.DebuggerIntelliSense
             End Using
         End Function
 
-        <WorkItem("http://vstfdevdiv:8080/DevDiv2/DevDiv/_workitems/edit/531167")>
-        <WpfFact>
+        <WpfFact, WorkItem("http://vstfdevdiv:8080/DevDiv2/DevDiv/_workitems/edit/531167")>
         Public Async Function ClassDesigner2() As Task
             Dim text = <Workspace>
                            <Project Language="C#" CommonReferences="true">
@@ -468,8 +514,7 @@ Namespace Microsoft.VisualStudio.LanguageServices.UnitTests.DebuggerIntelliSense
             End Using
         End Function
 
-        <WorkItem("http://vstfdevdiv:8080/DevDiv2/DevDiv/_workitems/edit/1124544")>
-        <WpfFact>
+        <WpfFact, WorkItem("http://vstfdevdiv:8080/DevDiv2/DevDiv/_workitems/edit/1124544")>
         Public Async Function CompletionUsesContextBufferPositions() As Task
             Dim text = <Workspace>
                            <Project Language="C#" CommonReferences="true">
@@ -733,8 +778,7 @@ $$</Document>
             End Using
         End Function
 
-        <WorkItem("https://devdiv.visualstudio.com/DevDiv/_workitems/edit/1163608")>
-        <WpfFact>
+        <WpfFact, WorkItem("https://devdiv.visualstudio.com/DevDiv/_workitems/edit/1163608")>
         Public Async Function TestItemDescription() As Task
             Dim text = <Workspace>
                            <Project Language="C#" CommonReferences="true">
@@ -756,6 +800,61 @@ $$</Document>
                 Assert.Contains("args", description.Text)
                 state.SendTab()
                 Assert.Contains("args", state.GetCurrentViewLineText())
+            End Using
+        End Function
+
+        <WpfTheory, CombinatorialData>
+        Public Async Function CommitUnimportedTypeShouldFullyQualify(isImmediateWindow As Boolean) As Task
+            Dim text = <Workspace>
+                           <Project Language="C#" CommonReferences="true">
+                               <Document>class Program
+{
+    static void Main(string[] args)
+    [|{|]
+    }
+}</Document>
+                           </Project>
+                       </Workspace>
+
+            Using state = TestState.CreateCSharpTestState(text, isImmediateWindow)
+
+                state.Workspace.GlobalOptions.SetGlobalOption(CompletionOptionsStorage.ForceExpandedCompletionIndexCreation, True)
+                state.Workspace.GlobalOptions.SetGlobalOption(CompletionOptionsStorage.ShowItemsFromUnimportedNamespaces, LanguageNames.CSharp, True)
+
+                state.SendTypeChars("Console")
+                Await state.WaitForAsynchronousOperationsAsync()
+                Await state.AssertCompletionSession()
+                Await state.AssertSelectedCompletionItem("Console", inlineDescription:="System")
+
+                state.SendTab()
+
+                Assert.Contains("System.Console", state.GetCurrentViewLineText())
+            End Using
+        End Function
+
+        <WpfTheory, CombinatorialData>
+        Public Async Function ShouldNotProvideUnimportedExtensionMethods(isImmediateWindow As Boolean) As Task
+            Dim text = <Workspace>
+                           <Project Language="C#" CommonReferences="true">
+                               <Document>class Program
+{
+    static void Main(string[] args)
+    [|{|]
+    }
+}</Document>
+                           </Project>
+                       </Workspace>
+
+            Using state = TestState.CreateCSharpTestState(text, isImmediateWindow)
+
+                state.Workspace.GlobalOptions.SetGlobalOption(CompletionOptionsStorage.ForceExpandedCompletionIndexCreation, True)
+                state.Workspace.GlobalOptions.SetGlobalOption(CompletionOptionsStorage.ShowItemsFromUnimportedNamespaces, LanguageNames.CSharp, True)
+
+                state.SendTypeChars("args.To")
+                Await state.WaitForAsynchronousOperationsAsync()
+                Await state.AssertCompletionSession()
+                Await state.AssertCompletionItemsContain("ToString", "")
+                Await state.AssertCompletionItemsDoNotContainAny("ToArray", "ToDictionary", "ToList")
             End Using
         End Function
     End Class

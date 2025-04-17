@@ -57,22 +57,18 @@ namespace Microsoft.CodeAnalysis.CSharp
                 case ClosureKind.Singleton: // all type parameters on method (except the top level method's)
                 case ClosureKind.General: // only lambda's type parameters on method (rest on class)
                     RoslynDebug.Assert(!(lambdaFrame is null));
-                    typeMap = lambdaFrame.TypeMap.WithConcatAlphaRename(
-                        originalMethod,
+                    typeMap = lambdaFrame.TypeMap.WithAlphaRename(
+                        TypeMap.ConcatMethodTypeParameters(originalMethod, stopAt: lambdaFrame.OriginalContainingMethodOpt),
                         this,
-                        out typeParameters,
-                        out _,
-                        lambdaFrame.OriginalContainingMethodOpt);
+                        out typeParameters);
                     break;
                 case ClosureKind.ThisOnly: // all type parameters on method
                 case ClosureKind.Static:
                     RoslynDebug.Assert(lambdaFrame is null);
-                    typeMap = TypeMap.Empty.WithConcatAlphaRename(
-                        originalMethod,
+                    typeMap = TypeMap.Empty.WithAlphaRename(
+                        TypeMap.ConcatMethodTypeParameters(originalMethod, stopAt: null),
                         this,
-                        out typeParameters,
-                        out _,
-                        stopAt: null);
+                        out typeParameters);
                     break;
                 default:
                     throw ExceptionUtilities.UnexpectedValue(closureKind);
@@ -123,7 +119,8 @@ namespace Microsoft.CodeAnalysis.CSharp
                 moduleBuilder.EnsureIsReadOnlyAttributeExists();
             }
 
-            ParameterHelpers.EnsureIsReadOnlyAttributeExists(moduleBuilder, Parameters);
+            ParameterHelpers.EnsureRefKindAttributesExist(moduleBuilder, Parameters);
+            // Not emitting ParamCollectionAttribute/ParamArrayAttribute for these methods because it is not a SynthesizedDelegateInvokeMethod
 
             if (moduleBuilder.Compilation.ShouldEmitNativeIntegerAttributes())
             {
@@ -218,7 +215,6 @@ namespace Microsoft.CodeAnalysis.CSharp
 
         internal override bool InheritsBaseMethodAttributes => true;
         internal override bool GenerateDebugInfo => !this.IsAsync;
-        internal override bool IsExpressionBodied => false;
 
         internal override int CalculateLocalSyntaxOffset(int localPosition, SyntaxTree localTree)
         {

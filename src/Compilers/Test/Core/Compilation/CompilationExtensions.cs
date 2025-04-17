@@ -35,9 +35,9 @@ namespace Microsoft.CodeAnalysis.Test.Utilities
     {
         internal static bool EnableVerifyIOperation { get; } =
 #if ROSLYN_TEST_IOPERATION
-            true;
+                                    true;
 #else
-            !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("ROSLYN_TEST_IOPERATION"));
+                        !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("ROSLYN_TEST_IOPERATION"));
 #endif
 
         internal static bool EnableVerifyUsedAssemblies { get; } =
@@ -276,10 +276,7 @@ namespace Microsoft.CodeAnalysis.Test.Utilities
             var compilation = createCompilation();
             var roots = ArrayBuilder<(IOperation operation, ISymbol associatedSymbol)>.GetInstance();
             var stopWatch = new Stopwatch();
-            if (!System.Diagnostics.Debugger.IsAttached)
-            {
-                stopWatch.Start();
-            }
+            start(stopWatch);
 
             void checkTimeout()
             {
@@ -346,12 +343,20 @@ namespace Microsoft.CodeAnalysis.Test.Utilities
 
                 stopWatch.Stop();
                 checkControlFlowGraph(root, associatedSymbol);
-                stopWatch.Start();
+                start(stopWatch);
             }
 
             roots.Free();
             stopWatch.Stop();
             return;
+
+            static void start(Stopwatch stopWatch)
+            {
+                if (!System.Diagnostics.Debugger.IsAttached)
+                {
+                    stopWatch.Start();
+                }
+            }
 
             void checkControlFlowGraph(IOperation root, ISymbol associatedSymbol)
             {

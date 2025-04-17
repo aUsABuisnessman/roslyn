@@ -2,7 +2,6 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 // See the LICENSE file in the project root for more information.
 
-using System;
 using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
@@ -14,82 +13,69 @@ using Microsoft.VisualStudio.Text;
 using Microsoft.VisualStudio.Text.Editor;
 using Roslyn.Utilities;
 
-namespace Microsoft.CodeAnalysis.Interactive
-{
-    internal sealed class InteractiveDocumentNavigationService : IDocumentNavigationService
-    {
-        private readonly IThreadingContext _threadingContext;
+namespace Microsoft.CodeAnalysis.Interactive;
 
-        public InteractiveDocumentNavigationService(IThreadingContext threadingContext)
+internal sealed class InteractiveDocumentNavigationService : AbstractDocumentNavigationService
+{
+    private readonly IThreadingContext _threadingContext;
+
+    public InteractiveDocumentNavigationService(IThreadingContext threadingContext)
+    {
+        _threadingContext = threadingContext;
+    }
+
+    public override Task<bool> CanNavigateToSpanAsync(Workspace workspace, DocumentId documentId, TextSpan textSpan, bool allowInvalidSpan, CancellationToken cancellationToken)
+        => SpecializedTasks.True;
+
+    public override async Task<INavigableLocation?> GetLocationForSpanAsync(Workspace workspace, DocumentId documentId, TextSpan textSpan, bool allowInvalidSpan, CancellationToken cancellationToken)
+    {
+        await _threadingContext.JoinableTaskFactory.SwitchToMainThreadAsync(cancellationToken);
+        if (workspace is not InteractiveWindowWorkspace interactiveWorkspace)
         {
-            _threadingContext = threadingContext;
+            Debug.Fail("InteractiveDocumentNavigationService called with incorrect workspace!");
+            return null;
         }
 
-        public Task<bool> CanNavigateToSpanAsync(Workspace workspace, DocumentId documentId, TextSpan textSpan, bool allowInvalidSpan, CancellationToken cancellationToken)
-            => SpecializedTasks.True;
+        if (interactiveWorkspace.Window is null)
+        {
+            Debug.Fail("We are trying to navigate with a workspace that doesn't have a window!");
+            return null;
+        }
 
-        public Task<bool> CanNavigateToLineAndOffsetAsync(Workspace workspace, DocumentId documentId, int lineNumber, int offset, CancellationToken cancellationToken)
-            => SpecializedTasks.False;
+        var textView = interactiveWorkspace.Window.TextView;
+        var document = interactiveWorkspace.CurrentSolution.GetDocument(documentId);
+        if (document is null)
+            return null;
 
-        public Task<bool> CanNavigateToPositionAsync(Workspace workspace, DocumentId documentId, int position, int virtualSpace, CancellationToken cancellationToken)
-            => SpecializedTasks.False;
+        var text = await document.GetValueTextAsync(cancellationToken).ConfigureAwait(false);
+        var textSnapshot = text.FindCorrespondingEditorTextSnapshot();
+        if (textSnapshot == null)
+            return null;
 
-        public async Task<INavigableLocation?> GetLocationForSpanAsync(Workspace workspace, DocumentId documentId, TextSpan textSpan, bool allowInvalidSpan, CancellationToken cancellationToken)
+        var snapshotSpan = new SnapshotSpan(textSnapshot, textSpan.Start, textSpan.Length);
+        var virtualSnapshotSpan = new VirtualSnapshotSpan(snapshotSpan);
+
+        if (!textView.TryGetSurfaceBufferSpan(virtualSnapshotSpan, out var surfaceBufferSpan))
+        {
+            return null;
+        }
+
+        return new NavigableLocation(async (options, cancellationToken) =>
         {
             await _threadingContext.JoinableTaskFactory.SwitchToMainThreadAsync(cancellationToken);
-            if (workspace is not InteractiveWindowWorkspace interactiveWorkspace)
-            {
-                Debug.Fail("InteractiveDocumentNavigationService called with incorrect workspace!");
-                return null;
-            }
 
-            if (interactiveWorkspace.Window is null)
-            {
-                Debug.Fail("We are trying to navigate with a workspace that doesn't have a window!");
-                return null;
-            }
+            textView.Selection.Select(surfaceBufferSpan.Start, surfaceBufferSpan.End);
+            textView.ViewScroller.EnsureSpanVisible(surfaceBufferSpan.SnapshotSpan, EnsureSpanVisibleOptions.AlwaysCenter);
 
-            var textView = interactiveWorkspace.Window.TextView;
-            var document = interactiveWorkspace.CurrentSolution.GetDocument(documentId);
-            if (document is null)
-                return null;
+            // Moving the caret must be the last operation involving surfaceBufferSpan because 
+            // it might update the version number of textView.TextSnapshot (VB does line commit
+            // when the caret leaves a line which might cause pretty listing), which must be 
+            // equal to surfaceBufferSpan.SnapshotSpan.Snapshot's version number.
+            textView.Caret.MoveTo(surfaceBufferSpan.Start);
 
-            var text = await document.GetTextAsync(cancellationToken).ConfigureAwait(false);
-            var textSnapshot = text.FindCorrespondingEditorTextSnapshot();
-            if (textSnapshot == null)
-                return null;
+            textView.VisualElement.Focus();
 
-            var snapshotSpan = new SnapshotSpan(textSnapshot, textSpan.Start, textSpan.Length);
-            var virtualSnapshotSpan = new VirtualSnapshotSpan(snapshotSpan);
-
-            if (!textView.TryGetSurfaceBufferSpan(virtualSnapshotSpan, out var surfaceBufferSpan))
-            {
-                return null;
-            }
-
-            return new NavigableLocation(async (options, cancellationToken) =>
-            {
-                await _threadingContext.JoinableTaskFactory.SwitchToMainThreadAsync(cancellationToken);
-
-                textView.Selection.Select(surfaceBufferSpan.Start, surfaceBufferSpan.End);
-                textView.ViewScroller.EnsureSpanVisible(surfaceBufferSpan.SnapshotSpan, EnsureSpanVisibleOptions.AlwaysCenter);
-
-                // Moving the caret must be the last operation involving surfaceBufferSpan because 
-                // it might update the version number of textView.TextSnapshot (VB does line commit
-                // when the caret leaves a line which might cause pretty listing), which must be 
-                // equal to surfaceBufferSpan.SnapshotSpan.Snapshot's version number.
-                textView.Caret.MoveTo(surfaceBufferSpan.Start);
-
-                textView.VisualElement.Focus();
-
-                return true;
-            });
-        }
-
-        public Task<INavigableLocation?> GetLocationForLineAndOffsetAsync(Workspace workspace, DocumentId documentId, int lineNumber, int offset, CancellationToken cancellationToken)
-            => SpecializedTasks.Null<INavigableLocation>();
-
-        public Task<INavigableLocation?> GetLocationForPositionAsync(Workspace workspace, DocumentId documentId, int position, int virtualSpace, CancellationToken cancellationToken)
-            => SpecializedTasks.Null<INavigableLocation>();
+            return true;
+        });
     }
 }

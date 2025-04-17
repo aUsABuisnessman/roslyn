@@ -17,9 +17,10 @@ namespace Microsoft.CodeAnalysis
         None = 0,
 
         /// <summary>
-        /// ".ctor" instead of "Goo"
+        /// - ".ctor" instead of "Goo"
+        /// - "&lt;Prop&gt;k__backingField" instead of "Prop.field" (for C# backing fields)
         /// </summary>
-        UseMetadataMethodNames = 1 << 0,
+        UseMetadataMemberNames = 1 << 0,
 
         /// <summary>
         /// "List`1" instead of "List&lt;T&gt;" ("List(of T)" in VB). Overrides GenericsOptions on
@@ -69,10 +70,16 @@ namespace Microsoft.CodeAnalysis
         IncludeContainingFileForFileTypes = 1 << 8,
 
         /// <summary>
-        /// Equivalent to <see cref="SymbolDisplayParameterOptions.IncludeName"/>
-        /// but only if the parameter is displayed on its own
+        /// Does not include parameter name if the parameter is displayed on its own
         /// (i.e., not as part of a method, delegate, or indexer).
         /// </summary>
-        IncludeParameterNameIfStandalone = 1 << 9,
+        ExcludeParameterNameIfStandalone = 1 << 9,
+
+        /// <summary>
+        /// Display `&lt;File&gt;F&lt;sha256-hex-string&gt;_MyType` instead of `MyType`.
+        /// Differs from <see cref="IncludeContainingFileForFileTypes"/> because it guarantees that
+        /// the prefix will be unique for all files which are permitted to declare file-local types.
+        /// </summary>
+        IncludeFileLocalTypesPrefix = 1 << 10,
     }
 }
