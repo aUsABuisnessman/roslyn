@@ -566,7 +566,7 @@ Do you want to continue?</value>
     <value>Not Available ⚠</value>
   </data>
   <data name="_0_1" xml:space="preserve">
-    <value>    {0} - {1}</value>
+    <value>{0} - {1}</value>
   </data>
   <data name="You_can_use_the_navigation_bar_to_switch_contexts" xml:space="preserve">
     <value>You can use the navigation bar to switch contexts.</value>
@@ -922,12 +922,6 @@ This version used in: {2}</value>
   </data>
   <data name="Add_null_check" xml:space="preserve">
     <value>Add null check</value>
-  </data>
-  <data name="Add_string_IsNullOrEmpty_check" xml:space="preserve">
-    <value>Add 'string.IsNullOrEmpty' check</value>
-  </data>
-  <data name="Add_string_IsNullOrWhiteSpace_check" xml:space="preserve">
-    <value>Add 'string.IsNullOrWhiteSpace' check</value>
   </data>
   <data name="Create_and_assign_field_0" xml:space="preserve">
     <value>Create and assign field '{0}'</value>
@@ -2681,6 +2675,9 @@ Zero-width positive lookbehind assertions are typically used at the beginning of
   <data name="ChangesRequiredSynthesizedType" xml:space="preserve">
     <value>One or more changes result in a new type being created by the compiler, which requires restarting the application because it is not supported by the runtime</value>
   </data>
+  <data name="Changing_source_file_0_in_a_stale_project_has_no_effect_until_the_project_is_rebuit" xml:space="preserve">
+    <value>Changing source file '{0}' in a stale project has no effect until the project is rebuit.</value>
+  </data>
   <data name="Miscellaneous_Files" xml:space="preserve">
     <value>Miscellaneous Files</value>
   </data>
@@ -3225,5 +3222,8 @@ Zero-width positive lookbehind assertions are typically used at the beginning of
   </data>
   <data name="Multiple_handlers_found_for_message_0" xml:space="preserve">
     <value>Multiple handlers found for message {0}.</value>
+  </data>
+  <data name="Add_0_check" xml:space="preserve">
+    <value>Add '{0}' check</value>
   </data>
 </root>

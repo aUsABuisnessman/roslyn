@@ -146,6 +146,11 @@ public partial class TestWorkspace<TDocument, TProject, TSolution>
                  language == LanguageNames.VisualBasic ? ".vbproj" : ("." + language));
         }
 
+        if (projectFilePath != null)
+        {
+            projectFilePath = PathUtilities.CombinePaths(TestWorkspace.RootDirectory, projectFilePath);
+        }
+
         var projectOutputDir = AbstractTestHostProject.GetTestOutputDirectory(projectFilePath);
 
         var languageServices = Services.GetLanguageServices(language);
@@ -667,8 +672,10 @@ public partial class TestWorkspace<TDocument, TProject, TSolution>
             AssertEx.Fail($"The document attributes on file {fileName} conflicted");
         }
 
+        var filePath = Path.Combine(TestWorkspace.RootDirectory, fileName);
+
         return CreateDocument(
-            exportProvider, languageServiceProvider, code, fileName, fileName, cursorPosition, spans, codeKind, folders, isLinkFile, documentServiceProvider);
+            exportProvider, languageServiceProvider, code, fileName, filePath, cursorPosition, spans, codeKind, folders, isLinkFile, documentServiceProvider);
     }
 #nullable enable
 
@@ -870,8 +877,7 @@ public partial class TestWorkspace<TDocument, TProject, TSolution>
             ((bool?)winRT).HasValue &&
             ((bool?)winRT).Value)
         {
-            references = new List<MetadataReference>(TestBase.WinRtRefs.Length);
-            references.AddRange(TestBase.WinRtRefs);
+            references = [.. TestBase.WinRtRefs];
             if (GetLanguage(element) == LanguageNames.VisualBasic)
             {
                 references.Add(TestBase.MsvbRef_v4_0_30319_17929);
@@ -885,8 +891,7 @@ public partial class TestWorkspace<TDocument, TProject, TSolution>
             ((bool?)portable).HasValue &&
             ((bool?)portable).Value)
         {
-            references = new List<MetadataReference>(TestBase.PortableRefsMinimal.Length);
-            references.AddRange(TestBase.PortableRefsMinimal);
+            references = [.. TestBase.PortableRefsMinimal];
         }
 
         var netcore30 = element.Attribute(CommonReferencesNetCoreAppName);

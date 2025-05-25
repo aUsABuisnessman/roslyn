@@ -3,6 +3,7 @@
 // See the LICENSE file in the project root for more information.
 
 using System.Composition;
+using Microsoft.CodeAnalysis.ExternalAccess.Razor;
 using Microsoft.CodeAnalysis.ExternalAccess.Razor.Features;
 using Microsoft.CodeAnalysis.Host;
 using Microsoft.CodeAnalysis.Host.Mef;
@@ -36,7 +37,7 @@ internal sealed partial class RazorDynamicFileInfoProvider(Lazy<LanguageServerWo
 
         _razorWorkspaceService.NotifyDynamicFile(projectId);
 
-        var dynamicInfo = await _dynamicFileInfoProvider.GetDynamicFileInfoAsync(workspaceFactory.Value.Workspace, projectId, projectFilePath, filePath, cancellationToken).ConfigureAwait(false);
+        var dynamicInfo = await _dynamicFileInfoProvider.GetDynamicFileInfoAsync(workspaceFactory.Value.HostWorkspace, projectId, projectFilePath, filePath, cancellationToken).ConfigureAwait(false);
         if (dynamicInfo is null)
         {
             return null;
@@ -47,7 +48,7 @@ internal sealed partial class RazorDynamicFileInfoProvider(Lazy<LanguageServerWo
             dynamicInfo.SourceCodeKind,
             dynamicInfo.TextLoader,
             designTimeOnly: true,
-            documentServiceProvider: null);
+            documentServiceProvider: new RazorDocumentServiceProviderWrapper(dynamicInfo.DocumentServiceProvider));
     }
 
     public Task OnInitializedAsync(ClientCapabilities clientCapabilities, RequestContext context, CancellationToken cancellationToken)
@@ -77,6 +78,6 @@ internal sealed partial class RazorDynamicFileInfoProvider(Lazy<LanguageServerWo
             return;
         }
 
-        await _dynamicFileInfoProvider.RemoveDynamicFileInfoAsync(workspaceFactory.Value.Workspace, projectId, projectFilePath, filePath, cancellationToken).ConfigureAwait(false);
+        await _dynamicFileInfoProvider.RemoveDynamicFileInfoAsync(workspaceFactory.Value.HostWorkspace, projectId, projectFilePath, filePath, cancellationToken).ConfigureAwait(false);
     }
 }
