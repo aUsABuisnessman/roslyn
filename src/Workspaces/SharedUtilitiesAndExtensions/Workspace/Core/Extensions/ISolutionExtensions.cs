@@ -5,6 +5,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.CodeAnalysis.Host;
@@ -103,7 +104,18 @@ internal static partial class ISolutionExtensions
         => solution.GetAnalyzerConfigDocument(documentId) ?? throw CreateDocumentNotFoundException();
 
     public static TextDocument GetRequiredTextDocument(this Solution solution, DocumentId documentId)
-        => solution.GetTextDocument(documentId) ?? throw CreateDocumentNotFoundException();
+    {
+        var document = solution.GetTextDocument(documentId);
+        if (document != null)
+            return document;
+
+#if WORKSPACE
+        if (documentId.IsSourceGenerated)
+            throw new InvalidOperationException($"Use {nameof(GetRequiredTextDocumentAsync)} to get the {nameof(TextDocument)} for a `.{nameof(DocumentId.IsSourceGenerated)}=true` {nameof(DocumentId)}");
+#endif
+
+        throw CreateDocumentNotFoundException();
+    }
 
     private static Exception CreateDocumentNotFoundException()
         => new InvalidOperationException(WorkspaceExtensionsResources.The_solution_does_not_contain_the_specified_document);
@@ -131,4 +143,18 @@ internal static partial class ISolutionExtensions
             new SourceGeneratorExecutionVersionMap(projectIdToSourceGenerationVersion.ToImmutable()));
     }
 #endif
+
+    public static TextDocument? GetTextDocumentForLocation(this Solution solution, Location location)
+    {
+        switch (location.Kind)
+        {
+            case LocationKind.SourceFile:
+                return solution.GetDocument(location.SourceTree);
+            case LocationKind.ExternalFile:
+                var documentId = solution.GetDocumentIdsWithFilePath(location.GetLineSpan().Path).FirstOrDefault();
+                return solution.GetTextDocument(documentId);
+            default:
+                return null;
+        }
+    }
 }
